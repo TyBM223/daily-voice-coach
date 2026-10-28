@@ -1,0 +1,33 @@
+# Coach settings. Restart the coach after editing.
+
+owner_name: Ty
+timezone: America/New_York
+
+location:
+  name: Tampa
+  lat: 27.9506
+  lon: -82.4572
+
+temperature_unit: fahrenheit   # or celsius
+
+language_to_learn: Spanish
+
+voice: en-US-GuyNeural   # any edge-tts voice name
+
+schedule:
+  morning: "08:00"
+  midday: "12:30"    # v2
+  evening: "18:00"   # v2
+
+# What the daily content slot holds on each weekday.
+# phrase_review repeats that week's Monday phrase; mix rotates fact / history / joke.
+content_rotation:
+  monday: phrase
+  tuesday: fact
+  wednesday: history
+  thursday: joke
+  friday: phrase_review
+  saturday: mix
+  sunday: mix
+
+use_llm: false   # v2 option: local Ollama writes the script

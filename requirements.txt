@@ -1,0 +1,8 @@
+edge-tts==7.3.1
+python-telegram-bot[job-queue]==22.8
+PyYAML==6.0.3
+python-dotenv==1.2.4
+tzdata==2026.6   # time zone data; Windows has none built in
+
+# dev
+pytest==9.2.0

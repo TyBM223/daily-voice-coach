@@ -1,0 +1,9 @@
+# Secrets and personal data
+.env
+data/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
