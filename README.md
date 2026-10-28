@@ -17,3 +17,7 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 3. Copy `.env.example` to `.env` and fill in your Telegram bot token and chat ID.
 4. Edit `coach/config.yaml` for your name, city, time zone and schedule.
 5. Run the tests: `.venv\Scripts\python -m pytest`
+
+## License
+
+MIT. See [LICENSE](LICENSE).
