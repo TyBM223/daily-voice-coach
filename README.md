@@ -16,7 +16,11 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
    ```
 3. Copy `.env.example` to `.env` and fill in your Telegram bot token and chat ID.
 4. Edit `coach/config.yaml` for your name, city, time zone and schedule.
-5. Run the tests: `.venv\Scripts\python -m pytest`
+5. Copy `coach/tasks.example.json` to `coach/data/tasks.json` and put in your own tasks:
+   - `"repeat": "daily"` shows every day
+   - no date shows every day until you delete it
+   - `"date": "YYYY-MM-DD"` shows only on that day
+6. Run the tests: `.venv\Scripts\python -m pytest`
 
 ## License
 

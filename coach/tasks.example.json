@@ -1,0 +1,8 @@
+{
+  "tasks": [
+    {"text": "Gym", "repeat": "daily"},
+    {"text": "Send two job applications", "repeat": "daily"},
+    {"text": "Finish cover letter"},
+    {"text": "Call mom", "date": "2026-10-30"}
+  ]
+}

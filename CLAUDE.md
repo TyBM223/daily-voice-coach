@@ -87,9 +87,9 @@ tests/
 ## Roadmap
 
 ### v1: Morning briefing (MVP)
-- [ ] Fetch weather (current temp, high/low, rain chance, short summary)
-- [ ] Load today's tasks from `data/tasks.json`
-- [ ] Pick the daily content item from the weekday rotation
+- [x] Fetch weather (current temp, high/low, rain chance, short summary)
+- [x] Load today's tasks from `data/tasks.json`
+- [x] Pick the daily content item from the weekday rotation (grim Wikipedia events skipped)
 - [ ] Build the script from a template (~45-75 sec spoken). Casual, direct, encouraging, not cheesy
 - [ ] Convert to audio with edge-tts
 - [ ] Send voice note + text version to Telegram
