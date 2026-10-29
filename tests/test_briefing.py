@@ -15,11 +15,11 @@ PHRASE = Phrase("Spanish", "¿Qué me recomiendas?", "What do you recommend?", "
 QUOTE = Quote("Make each day your masterpiece.", "John Wooden")
 
 
-def build(weather=WEATHER, tasks=("Gym",), item=FACT, now=NOW, quote=QUOTE):
+def build(weather=WEATHER, tasks=("Gym",), item=FACT, now=NOW, quote=QUOTE, games=()):
     """tasks may mix plain strings (one-off tasks) and Task objects."""
     if tasks is not None:
         tasks = [task if isinstance(task, Task) else Task(task) for task in tasks]
-    return build_briefing("Ty", "Tampa", now, weather, tasks, item, quote)
+    return build_briefing("Ty", "Tampa", now, weather, tasks, item, quote, list(games))
 
 
 def spoken(briefing):
@@ -258,3 +258,58 @@ def test_phrase_help_for_a_single_word_skips_word_by_word():
     briefing = build_phrase_help(Phrase("Spanish", "¡Ánimo!", "Keep your chin up!"))
     assert [segment.text for segment in briefing.segments if segment.foreign] == ["¡Ánimo!", "¡Ánimo!"]
     assert "Word by word" not in briefing.text
+
+
+# --- sports -----------------------------------------------------------------
+
+from coach.sources.sports import Game  # noqa: E402
+
+FRIDAY_9AM = datetime(2026, 10, 30, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+
+
+def game(team, opponent, home, day, hour, minute=0, state="pre", tv=None, score=None, won=None):
+    start = datetime(2026, 10, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+    return Game(team, opponent, home, start, state, tv, score, won=won)
+
+
+def test_game_day_and_last_nights_result():
+    games = [
+        game("Heat", "Hawks", False, 28, 19, state="post", score=(129, 117)),  # two days ago: not mentioned
+        game("Heat", "Knicks", True, 29, 19, 30, state="post", score=(101, 96)),
+        game("Chelsea", "Liverpool", False, 29, 15, state="post", score=(1, 1), won=False),
+        game("Heat", "Pacers", True, 30, 20, tv="NBA League Pass"),
+        game("Auburn", "Ole Miss", False, 31, 12, 45),  # tomorrow: not mentioned
+    ]
+    text = spoken(build(now=FRIDAY_9AM, games=games))
+    assert ("Yesterday: Chelsea lost to Liverpool on penalties after a 1 to 1 draw. "
+            "Last night: Heat beat Knicks, 101 to 96. "
+            "Game day: Heat versus Pacers, 8 PM, on NBA League Pass.") in text
+    assert "Hawks" not in text and "Ole Miss" not in text
+    assert "Sports: Yesterday: Chelsea lost" in build(now=FRIDAY_9AM, games=games).text
+
+
+def test_two_games_today_and_one_on_now():
+    saturday = datetime(2026, 10, 31, 10, 30, tzinfo=ZoneInfo("America/New_York"))
+    games = [game("Chelsea", "Man Utd", True, 31, 8, 30, state="in", tv="USA Net"),
+             game("Auburn", "Ole Miss", False, 31, 12, 45, tv="SEC Network"),
+             game("Heat", "Nets", False, 31, 19, 30)]
+    text = spoken(build(now=saturday, games=games))
+    assert ("Chelsea versus Man Utd is on now on USA Net. "
+            "Game day: Auburn at Ole Miss, 12:45 PM, on SEC Network and Heat at Nets, 7:30 PM.") in text
+
+
+def test_no_games_no_sports_line():
+    briefing = build(now=FRIDAY_9AM, games=[game("Auburn", "Ole Miss", False, 31, 12, 45)])
+    assert "Sports" not in briefing.text and "Game day" not in spoken(briefing)
+
+
+def test_game_day_stays_under_85_seconds():
+    # The busiest morning plus a result and two games: about 86 seconds at ~132 words a minute.
+    long_history = HistoryMoment(" ".join(["word"] * 45) + ".", year=1919)
+    tasks = [f"Send applications to company number {n}" for n in range(1, 8)]
+    longest_quote = Quote(" ".join(["word"] * 22) + ".", "Martin Luther King Jr.")
+    games = [game("Heat", "Knicks", True, 29, 19, 30, state="post", score=(101, 96)),
+             game("Heat", "Pacers", True, 30, 20, tv="NBA League Pass"),
+             game("Auburn", "Ole Miss", False, 30, 12, 45, tv="SEC Network")]
+    briefing = build(tasks=tasks, item=long_history, quote=longest_quote, now=FRIDAY_9AM, games=games)
+    assert len(spoken(briefing).split()) <= 190

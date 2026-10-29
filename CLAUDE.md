@@ -96,6 +96,7 @@ tests/
 - Content rotation: Mon phrase, Tue fact, Wed history, Thu joke, Fri review of Monday's phrase, weekends rotate fact / history / joke.
 - Picks come from what's been sent (v2): every morning briefing records its phrase / fact / history / joke and quote under `"sent"` in `data/log.json`, only after it actually goes out. Each deck is walked in order, skipping anything sent; once a deck is used up, the one heard longest ago comes back first. JokeAPI is asked up to 3 times for a joke not told before; Wikipedia events already told are skipped. New deck entries just get their turn. Reviews aren't recorded, so they don't move a phrase's review schedule.
 - Phrase reviews only cover phrases Ty actually heard: Friday's morning slot reviews the newest phrase from the past 6 days (or becomes a fun fact if there isn't one), and the evening check-in adds a quick review 1, 3 and 7 days after a phrase is taught. `/phrase` resends the latest phrase word by word and slowly, then at normal speed, with the spelling.
+- Sports source: ESPN's public site JSON (Ty's pick, 2026-10-29), no key or account. Teams live in config.yaml (`teams`: name, ESPN team ID, ESPN league paths, optional headline keywords). Headlines are matched on the team's name as a case-sensitive whole word, so "heat wave" doesn't count; video clips are skipped. The headlines message is sent after the briefing and never raises, so a failure there can't make the briefing resend.
 - Closing quote: curated `quotes.json` (Ty's pick over a quotes API), a new one each day (picked like the decks above), attributions checked by hand. Quotes stay at 22 words or fewer so the busiest briefing fits in 75 seconds; if the file can't be read, the briefing ends with a plain sign-off.
 
 ## Roadmap
@@ -122,9 +123,7 @@ Check-in style: midday is text only (with task buttons); the evening is a short 
 - [x] Group 2: midday check-in at 12:30 on weekdays (one line on what's left, with task buttons; skipped when there are no tasks) and an evening wrap-up at 6:00 PM every day (short voice note: what got done, what's open, tomorrow's weather and first task; open tasks get Done buttons, and one-offs also get Tomorrow / Drop). Built and dry-run against the real task list; waiting on a live evening
 - [x] Group 3: no repeats (phrases, facts, history, jokes and quotes picked from the sent history in `data/log.json`); spaced phrase reviews in the evening 1, 3 and 7 days after a phrase is taught; `/phrase` resends the latest phrase word by word, slowly, then at normal speed, with the spelling. Built and dry-run; waiting on a live week
 - [ ] Optional (ask first): top news headlines from free RSS feeds (no key), in the briefing or on `/news`
-- [ ] Game-day heads-up for Ty's teams: San Francisco 49ers (NFL), Miami Heat (NBA), Auburn Tigers (college football), Chelsea FC (soccer). Opponent, start time in Ty's time zone, and TV channel when known. Teams go in config.yaml so anyone can set their own. Ty doesn't follow hockey or baseball
-- [ ] Sports headlines and standout stats from today and yesterday, for those teams and leagues
-- Sports notes for the v2 checkpoint: pick free, no-card sources then (candidates to verify: league or ESPN RSS feeds for headlines; ESPN's public but unofficial JSON endpoints or TheSportsDB's free tier for schedules). The busiest briefing is already near 75 seconds, so sports needs room: game days only, a short line, or its own message
+- [x] Group 4: sports for Ty's teams (49ers, Heat, Auburn football, Chelsea incl. League Cup and FA Cup; no hockey or baseball). The morning briefing says yesterday's results and today's games with time and TV (game-day mornings can run to about 86 seconds); up to 3 headlines from the last 24 hours follow as a short text with links; `/sports` shows next games, results from the past week and headlines since yesterday. Built and dry-run with live data; waiting on a live game day
 - [ ] Optional (ask first): sync with a free task app (Google Tasks API)
 - [ ] Optional (ask first): Ollama-generated briefing script
 
@@ -150,4 +149,5 @@ Start by running locally. Always-on options to discuss later: keep the home PC r
 ## Known free-tier risks
 - edge-tts uses Microsoft's public endpoint and could break. Fallback: Piper.
 - JokeAPI / Wikipedia could rate-limit or go down. Always fall back to local JSON.
+- ESPN's site JSON (sports) is public but unofficial and undocumented, so it can change or go away without notice. Every sports call fails soft: no sports line or headlines that day, the rest of the briefing unaffected. Backup if it breaks: TheSportsDB's free key (one upcoming game per team, no TV channels or news).
 - Ollama needs decent RAM/CPU. Ty's laptop (checked 2026-10-28): Ryzen 9 6900HS, 16 GB RAM, AMD RX 6700S with 8 GB, Ollama 0.40.8 installed. Before v3, check whether Ollama actually uses the AMD GPU; on CPU alone, expect slower replies and stick to small models.

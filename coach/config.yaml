@@ -36,4 +36,22 @@ content_rotation:
   saturday: mix
   sunday: mix
 
+# Teams to follow, from ESPN's public data (see coach/sources/sports.py). team is ESPN's team ID:
+# the number in the team's espn.com URL. leagues are ESPN's sport/league paths; a soccer club can
+# list its cups too. keywords mark a headline as being about the team (default: the name).
+teams:
+  - name: 49ers
+    team: "25"
+    leagues: [football/nfl]
+    keywords: [49ers, Niners]
+  - name: Heat
+    team: "14"
+    leagues: [basketball/nba]
+  - name: Auburn
+    team: "2"
+    leagues: [football/college-football]
+  - name: Chelsea
+    team: "363"
+    leagues: [soccer/eng.1, soccer/eng.league_cup, soccer/eng.fa]
+
 use_llm: false   # v2 option: local Ollama writes the script

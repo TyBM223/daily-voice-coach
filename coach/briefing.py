@@ -1,9 +1,10 @@
 """Builds what the coach says: the morning briefing, the evening wrap-up and /phrase help (each
 a spoken script split into voice segments, plus a written copy), and the one-line midday check-in."""
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from coach.sources.content import ContentItem, Fact, HistoryMoment, Joke, Phrase, Quote
+from coach.sources.sports import Game, clock, matchup, result
 from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
@@ -48,17 +49,47 @@ def build_briefing(
     tasks: list[Task] | None,
     item: ContentItem,
     quote: Quote | None,
+    games: list[Game] = (),
 ) -> Briefing:
-    """Assemble the briefing. tasks is None when tasks.json couldn't be read; quote, when quotes.json couldn't."""
+    """Assemble the briefing. tasks is None when tasks.json couldn't be read; quote, when quotes.json couldn't.
+    games are the teams' listed games; only today's and yesterday's are mentioned."""
     script = _Script()
     written = [
         _greeting(script, name, now),
         _weather(script, weather, place),
         _tasks(script, tasks),
         _content(script, item),
+        _sports(script, games, now),
         _closing(script, quote),
     ]
-    return Briefing(script.segments, "\n\n".join(written))
+    return Briefing(script.segments, "\n\n".join(line for line in written if line))
+
+
+def _sports(script: _Script, games: list[Game], now: datetime) -> str:
+    """Yesterday's results, then today's games: "Last night: Heat beat Hawks, 129 to 117. Game day:
+    Heat versus Pacers, 8 PM, on NBA League Pass." Nothing on days without games."""
+    today, yesterday = now.date(), now.date() - timedelta(days=1)
+    games = sorted(games, key=lambda game: game.start)
+    lines = []
+    finished = [game for game in games if game.state == "post" and game.score
+                and game.start.date() in (yesterday, today)]
+    for game in finished:
+        when = "Earlier today" if game.start.date() == today else "Last night" if game.start.hour >= 17 else "Yesterday"
+        lines.append(f"{when}: {result(game)}.")
+    live = [game for game in games if game.state == "in" and game.start.date() == today]
+    for game in live:
+        lines.append(f"{matchup(game)} is on now" + (f" on {game.tv}." if game.tv else "."))
+    upcoming = [game for game in games if game.state == "pre" and game.start.date() == today]
+    if upcoming:
+        lines.append("Game day: " + _join([f"{matchup(game)}, {clock(game.start)}{_on(game)}" for game in upcoming]) + ".")
+    if not lines:
+        return ""
+    script.say(" ".join(lines))
+    return "Sports: " + " ".join(lines)
+
+
+def _on(game: Game) -> str:
+    return f", on {game.tv}" if game.tv else ""
 
 
 def _greeting(script: _Script, name: str, now: datetime) -> str:
@@ -157,7 +188,7 @@ def _closing(script: _Script, quote: Quote | None) -> str:
     if quote is None:
         script.say(FALLBACK_SIGN_OFF)
         return FALLBACK_SIGN_OFF
-    script.say(f"One for the road: {quote.text} That's {quote.author}.")
+    script.say(f"One for the road: {quote.text} That's {quote.author.rstrip('.')}.")
     return f'One for the road: "{quote.text}" — {quote.author}'
 
 

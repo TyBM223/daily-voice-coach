@@ -18,8 +18,8 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from dotenv import load_dotenv
-from telegram import Bot, BotCommand, BotCommandScopeChat, InlineKeyboardMarkup, Update
-from telegram.constants import ChatAction
+from telegram import Bot, BotCommand, BotCommandScopeChat, InlineKeyboardMarkup, LinkPreviewOptions, Update
+from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -32,8 +32,10 @@ from coach.delivery.telegram import (
     TASK_TAP,
     WAKE_BUTTON,
     evening_buttons,
+    headlines_html,
     recent_chats,
     send_briefing,
+    sports_html,
     task_buttons,
 )
 from coach.sources.content import (
@@ -46,6 +48,7 @@ from coach.sources.content import (
     record_sent,
     sent_keys,
 )
+from coach.sources.sports import fetch_games, fetch_headlines
 from coach.sources.tasks import TasksFileError, add_task, drop_task, load_tasks, move_to_tomorrow, toggle_done
 from coach.sources.weather import fetch_weather
 from coach.voice.tts import EdgeTTS, render
@@ -68,6 +71,9 @@ WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
 CHECK_EVERY_SECONDS = 60
 SEND_ATTEMPTS = 3
 RETRY_SECONDS = 20
+MORNING_HEADLINES = 3  # sports stories sent after the morning briefing
+SPORTS_HEADLINES = 5  # stories shown by /sports
+NO_PREVIEW = LinkPreviewOptions(is_disabled=True)  # headline links shouldn't each unfurl into a big card
 
 HELP = (
     "Here's what I can do:\n"
@@ -75,6 +81,7 @@ HELP = (
     "/add Finish resume: add a task. It stays on your list until it's done.\n"
     "/add tomorrow Call mom: add a task for tomorrow only.\n"
     "/phrase: this week's phrase again, word by word and slowly, with the spelling.\n"
+    "/sports: your teams' next games, latest results and headlines.\n"
     f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.\n'
     "Midday on weekdays I check what's left, and in the evening I recap the day. "
     "Tap anything you finished, or move it to tomorrow."
@@ -105,8 +112,20 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
         pick_content, today, config["content_rotation"], config["language_to_learn"], history=history
     )
     quote = pick_quote(history)
-    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, quote)
+    games = await _games(config, now.tzinfo)
+    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, quote, games)
     return briefing, await _record(briefing, config, MORNING_AUDIO_PATH), sent_keys(item, quote)
+
+
+async def _games(config: dict, tz: ZoneInfo) -> list:
+    """The teams' games for the briefing. Never raises: a sports problem (even a config typo)
+    means no sports line today, not a missing briefing."""
+    teams = config.get("teams") or []
+    try:
+        return await asyncio.to_thread(fetch_games, teams, tz) if teams else []
+    except Exception as e:
+        log.warning("Sports skipped: %s", e)
+        return []
 
 
 async def _record(script: Briefing, config: dict, path: Path) -> Path | None:
@@ -142,6 +161,23 @@ async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> No
     await _send_with_retries(lambda: send_briefing(bot, chat_id, briefing.text, audio_path, buttons),
                              "Morning briefing")
     record_sent(DAY_LOG_PATH, now.date(), sent)  # only once it's out, so a failed send gets the same picks
+    await _send_headlines(config, bot, chat_id, now)
+
+
+async def _send_headlines(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
+    """Up to 3 stories about Ty's teams from the last 24 hours, as a short text after the briefing.
+    Never raises: the briefing is already out, and a failure here mustn't make it resend."""
+    teams = config.get("teams") or []
+    if not teams:
+        return
+    try:
+        headlines = await asyncio.to_thread(fetch_headlines, teams, now - timedelta(hours=24))
+        if headlines:
+            await bot.send_message(chat_id, headlines_html(headlines[:MORNING_HEADLINES]), parse_mode=ParseMode.HTML,
+                                   link_preview_options=NO_PREVIEW, reply_markup=KEYBOARD)
+            log.info("Sports headlines sent")
+    except Exception as e:
+        log.warning("Sports headlines not sent: %s", e)
 
 
 async def run_midday(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
@@ -361,6 +397,27 @@ async def on_phrase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await send_briefing(context.bot, chat_id, help_script.text, audio_path)
 
 
+async def on_sports(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/sports: each team's next game and latest result, plus headlines since yesterday."""
+    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
+    teams = config.get("teams") or []
+    if not teams:
+        await update.effective_message.reply_text("No teams set up yet. Add them under teams: in config.yaml.",
+                                                  reply_markup=KEYBOARD)
+        return
+    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    tz = ZoneInfo(config["timezone"])
+    now = datetime.now(tz)
+    since = datetime.combine(now.date() - timedelta(days=1), time(), tz)
+    games, headlines = await asyncio.gather(
+        asyncio.to_thread(fetch_games, teams, tz), asyncio.to_thread(fetch_headlines, teams, since)
+    )
+    await update.effective_message.reply_text(
+        sports_html(games, headlines[:SPORTS_HEADLINES], now), parse_mode=ParseMode.HTML,
+        link_preview_options=NO_PREVIEW, reply_markup=KEYBOARD,
+    )
+
+
 async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(HELP, reply_markup=KEYBOARD)
 
@@ -408,6 +465,7 @@ async def _set_commands(app: Application) -> None:
             [BotCommand("tasks", "Today's list; tap a task to check it off"),
              BotCommand("add", "Add a task (/add tomorrow ... for tomorrow only)"),
              BotCommand("phrase", "This week's phrase, slowly, with the spelling"),
+             BotCommand("sports", "Your teams' next games, results and headlines"),
              BotCommand("help", "What I can do")],
             scope=BotCommandScopeChat(int(app.bot_data["chat_id"])),
         )
@@ -425,6 +483,7 @@ def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app.add_handler(CommandHandler("tasks", on_tasks, filters=ty))
     app.add_handler(CommandHandler("add", on_add, filters=ty))
     app.add_handler(CommandHandler("phrase", on_phrase, filters=ty))
+    app.add_handler(CommandHandler("sports", on_sports, filters=ty))
     app.add_handler(CommandHandler(["help", "start"], on_help, filters=ty))
     app.add_handler(MessageHandler(ty & filters.COMMAND, on_unknown_command))
     app.add_handler(MessageHandler(ty, on_message))

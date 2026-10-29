@@ -35,11 +35,16 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 - `/tasks` shows today's list, with the same buttons.
 - `/add Finish resume` adds a task that stays until it's done. `/add tomorrow Call mom` adds one for tomorrow only.
 - `/phrase` resends the latest language phrase word by word, slowly, then at normal speed, with the spelling written out.
+- `/sports` shows your teams' next games (time and TV), results from the past week, and headlines since yesterday.
 - `/help` lists everything.
 - At 12:30 on weekdays, a one-line midday check shows what's left, with the same buttons.
 - At 6:00 PM, a short voice note recaps the day and previews tomorrow (weather and first task). Anything still open gets buttons: check it off, move it to tomorrow, or drop it.
 
 Check-offs are saved in `coach/data/tasks.json` and logged by day in `coach/data/log.json`. You can still edit `tasks.json` by hand. The log also records what each briefing said, so facts, jokes, history moments, phrases and quotes don't repeat until a deck is used up, and phrase reviews only cover phrases you've heard.
+
+## Sports
+
+Set your teams under `teams:` in `coach/config.yaml`: a name, the ESPN team ID (the number in the team's espn.com URL), and ESPN's league paths (for example `basketball/nba`, `football/nfl`, `football/college-football`, `soccer/eng.1`). On game days the morning briefing mentions the game, time and channel; the morning after, the score. Up to three headlines about your teams follow the briefing as a short text. The data comes from ESPN's public site feeds, which are free but unofficial, so if they change, the sports parts are skipped and everything else still works.
 
 ## License
 
