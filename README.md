@@ -34,11 +34,12 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 - Today's tasks come as buttons under the briefing. Tap one to check it off; tap again to undo.
 - `/tasks` shows today's list, with the same buttons.
 - `/add Finish resume` adds a task that stays until it's done. `/add tomorrow Call mom` adds one for tomorrow only.
+- `/phrase` resends the latest language phrase word by word, slowly, then at normal speed, with the spelling written out.
 - `/help` lists everything.
 - At 12:30 on weekdays, a one-line midday check shows what's left, with the same buttons.
 - At 6:00 PM, a short voice note recaps the day and previews tomorrow (weather and first task). Anything still open gets buttons: check it off, move it to tomorrow, or drop it.
 
-Check-offs are saved in `coach/data/tasks.json` and logged by day in `coach/data/log.json`. You can still edit `tasks.json` by hand.
+Check-offs are saved in `coach/data/tasks.json` and logged by day in `coach/data/log.json`. You can still edit `tasks.json` by hand. The log also records what each briefing said, so facts, jokes, history moments, phrases and quotes don't repeat until a deck is used up, and phrase reviews only cover phrases you've heard.
 
 ## License
 

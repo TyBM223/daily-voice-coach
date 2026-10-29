@@ -16,10 +16,11 @@ which keeps the history after finished tasks are cleared out of tasks.json.
 import hashlib
 import json
 import logging
-import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
+
+from coach.sources import write_atomic
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _write(path: Path, entries: list[dict], today: date) -> None:
     One-off tasks finished before today are cleared out (log.json keeps the record)."""
     kept = [entry for entry in entries if not _finished_before(entry, today)]
     lines = ",\n".join("    " + json.dumps(entry, ensure_ascii=False) for entry in kept)
-    _replace(path, '{\n  "tasks": [\n' + lines + "\n  ]\n}\n" if kept else '{\n  "tasks": []\n}\n')
+    write_atomic(path, '{\n  "tasks": [\n' + lines + "\n  ]\n}\n" if kept else '{\n  "tasks": []\n}\n')
 
 
 def _log_done(log_path: Path, day: date, text: str, done: bool) -> None:
@@ -175,12 +176,4 @@ def _log_done(log_path: Path, day: date, text: str, done: bool) -> None:
         finished.append(text)
     elif not done and text in finished:
         finished.remove(text)
-    _replace(log_path, json.dumps(history, indent=2, ensure_ascii=False) + "\n")
-
-
-def _replace(path: Path, text: str) -> None:
-    """Write to a temporary file first, so a crash mid-write can't leave a half-written file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(".tmp")
-    temp.write_text(text, encoding="utf-8")
-    os.replace(temp, path)
+    write_atomic(log_path, json.dumps(history, indent=2, ensure_ascii=False) + "\n")

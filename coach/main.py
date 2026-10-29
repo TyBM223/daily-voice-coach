@@ -23,7 +23,7 @@ from telegram.constants import ChatAction
 from telegram.error import BadRequest, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from coach.briefing import Briefing, build_briefing, build_evening, build_midday
+from coach.briefing import Briefing, build_briefing, build_evening, build_midday, build_phrase_help
 from coach.delivery.telegram import (
     EVENING_DONE,
     EVENING_DROP,
@@ -36,7 +36,16 @@ from coach.delivery.telegram import (
     send_briefing,
     task_buttons,
 )
-from coach.sources.content import pick_content, pick_quote
+from coach.sources.content import (
+    REVIEW_AFTER_DAYS,
+    content_kind,
+    load_history,
+    pick_content,
+    pick_quote,
+    recent_phrase,
+    record_sent,
+    sent_keys,
+)
 from coach.sources.tasks import TasksFileError, add_task, drop_task, load_tasks, move_to_tomorrow, toggle_done
 from coach.sources.weather import fetch_weather
 from coach.voice.tts import EdgeTTS, render
@@ -48,10 +57,11 @@ CONFIG_PATH = PACKAGE_DIR / "config.yaml"
 DATA_DIR = PACKAGE_DIR / "data"
 MORNING_AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
 EVENING_AUDIO_PATH = DATA_DIR / "audio" / "evening.mp3"
+PHRASE_AUDIO_PATH = DATA_DIR / "audio" / "phrase.mp3"
 STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 TASKS_PATH = DATA_DIR / "tasks.json"
-DAY_LOG_PATH = DATA_DIR / "log.json"  # what got done each day
+DAY_LOG_PATH = DATA_DIR / "log.json"  # what got done and what was sent, each day
 
 GRACE = timedelta(hours=3)  # laptop asleep at check-in time? Still send if it wakes within 3 hours
 WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
@@ -64,6 +74,7 @@ HELP = (
     "/tasks: today's list. Tap a task to check it off, tap again to undo.\n"
     "/add Finish resume: add a task. It stays on your list until it's done.\n"
     "/add tomorrow Call mom: add a task for tomorrow only.\n"
+    "/phrase: this week's phrase again, word by word and slowly, with the spelling.\n"
     f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.\n'
     "Midday on weekdays I check what's left, and in the evening I recap the day. "
     "Tap anything you finished, or move it to tomorrow."
@@ -76,8 +87,9 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         return yaml.safe_load(f)
 
 
-async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path | None]:
-    """Gather today's info, build the briefing, and save it as an MP3 (None if the voice fails)."""
+async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path | None, dict[str, str]]:
+    """Gather today's info, build the briefing, and save it as an MP3 (None if the voice fails).
+    Also returns what to record in the history once it's sent."""
     today = now.date()
     location = config["location"]
     weather = await asyncio.to_thread(
@@ -88,9 +100,13 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
     except TasksFileError as e:
         log.warning("%s", e)
         tasks = None
-    item = await asyncio.to_thread(pick_content, today, config["content_rotation"], config["language_to_learn"])
-    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, pick_quote(today))
-    return briefing, await _record(briefing, config, MORNING_AUDIO_PATH)
+    history = load_history(DAY_LOG_PATH)
+    item = await asyncio.to_thread(
+        pick_content, today, config["content_rotation"], config["language_to_learn"], history=history
+    )
+    quote = pick_quote(history)
+    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, quote)
+    return briefing, await _record(briefing, config, MORNING_AUDIO_PATH), sent_keys(item, quote)
 
 
 async def _record(script: Briefing, config: dict, path: Path) -> Path | None:
@@ -121,10 +137,11 @@ async def _send_with_retries(send: Callable[[], Awaitable], what: str) -> None:
 
 async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
     """Build today's briefing and send it, with today's task buttons."""
-    briefing, audio_path = await prepare_morning(config, now)
+    briefing, audio_path, sent = await prepare_morning(config, now)
     buttons = today_buttons(now.date())
     await _send_with_retries(lambda: send_briefing(bot, chat_id, briefing.text, audio_path, buttons),
                              "Morning briefing")
+    record_sent(DAY_LOG_PATH, now.date(), sent)  # only once it's out, so a failed send gets the same picks
 
 
 async def run_midday(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
@@ -155,7 +172,8 @@ async def run_evening(config: dict, bot: Bot, chat_id: str, now: datetime) -> No
     weather = await asyncio.to_thread(
         fetch_weather, location["lat"], location["lon"], config["timezone"], config["temperature_unit"], days_ahead=1
     )
-    evening = build_evening(config["owner_name"], tasks, weather, upcoming)
+    review = recent_phrase(today, load_history(DAY_LOG_PATH), config["language_to_learn"], ages=REVIEW_AFTER_DAYS)
+    evening = build_evening(config["owner_name"], tasks, weather, upcoming, review)
     audio_path = await _record(evening, config, EVENING_AUDIO_PATH)
     buttons = evening_buttons(tasks or [], today)
     await _send_with_retries(lambda: send_briefing(bot, chat_id, evening.text, audio_path, buttons),
@@ -325,6 +343,24 @@ async def on_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(reply, reply_markup=KEYBOARD)
 
 
+async def on_phrase(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/phrase: the latest phrase again, word by word and slowly, with the spelling written out."""
+    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
+    today = _today(context)
+    phrase = recent_phrase(today, load_history(DAY_LOG_PATH), config["language_to_learn"])
+    if phrase is None:
+        upcoming = (today + timedelta(days=n) for n in range(1, 8))
+        next_day = next((day for day in upcoming if content_kind(day, config["content_rotation"]) == "phrase"), None)
+        when = f"with {next_day:%A}'s briefing" if next_day else "once phrases are on in config.yaml"
+        await update.effective_message.reply_text(f"No phrase yet. Your first one comes {when}.",
+                                                  reply_markup=KEYBOARD)
+        return
+    await context.bot.send_chat_action(chat_id, ChatAction.RECORD_VOICE)
+    help_script = build_phrase_help(phrase)
+    audio_path = await _record(help_script, config, PHRASE_AUDIO_PATH)
+    await send_briefing(context.bot, chat_id, help_script.text, audio_path)
+
+
 async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(HELP, reply_markup=KEYBOARD)
 
@@ -371,6 +407,7 @@ async def _set_commands(app: Application) -> None:
         await app.bot.set_my_commands(
             [BotCommand("tasks", "Today's list; tap a task to check it off"),
              BotCommand("add", "Add a task (/add tomorrow ... for tomorrow only)"),
+             BotCommand("phrase", "This week's phrase, slowly, with the spelling"),
              BotCommand("help", "What I can do")],
             scope=BotCommandScopeChat(int(app.bot_data["chat_id"])),
         )
@@ -387,6 +424,7 @@ def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     ty = filters.Chat(chat_id=int(chat_id)) & filters.UpdateType.MESSAGE
     app.add_handler(CommandHandler("tasks", on_tasks, filters=ty))
     app.add_handler(CommandHandler("add", on_add, filters=ty))
+    app.add_handler(CommandHandler("phrase", on_phrase, filters=ty))
     app.add_handler(CommandHandler(["help", "start"], on_help, filters=ty))
     app.add_handler(MessageHandler(ty & filters.COMMAND, on_unknown_command))
     app.add_handler(MessageHandler(ty, on_message))
@@ -459,7 +497,7 @@ def main() -> None:
             asyncio.run(send_now(config, token, chat_id))
             print("Sent to Telegram.")
         elif args.now:
-            briefing, audio_path = asyncio.run(prepare_morning(config, datetime.now(ZoneInfo(config["timezone"]))))
+            briefing, audio_path, _ = asyncio.run(prepare_morning(config, datetime.now(ZoneInfo(config["timezone"]))))
             print(briefing.text)
             print(f"\nAudio: {audio_path or 'none (the voice service did not answer)'}")
             print("Not sent: add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env to send it to Telegram.")

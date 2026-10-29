@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from coach.briefing import build_briefing, build_evening, build_midday
+from coach.briefing import build_briefing, build_evening, build_midday, build_phrase_help
 from coach.sources.content import Fact, HistoryMoment, Joke, Phrase, Quote
 from coach.sources.tasks import Task
 from coach.sources.weather import Weather
@@ -226,3 +226,35 @@ def test_evening_stays_short():
     # About 35 seconds at most (~130 words a minute), even with a long list of long task names.
     tasks = [Task(f"Send applications to company number {n}") for n in range(1, 9)]
     assert len(spoken(evening(tasks=tasks, upcoming=tasks)).split()) <= 80
+
+
+def test_evening_phrase_review_sits_between_recap_and_tomorrow():
+    review = Phrase("Spanish", "¿Qué me recomiendas?", "What do you recommend?", review=True)
+    briefing = build_evening("Ty", [GYM_DONE], TOMORROW, [], review)
+    foreign = [segment for segment in briefing.segments if segment.foreign]
+    assert [segment.text for segment in foreign] == ["¿Qué me recomiendas?"]
+    text = spoken(briefing)
+    assert text.index("Clean sweep") < text.index("Quick Spanish review") < text.index("Tomorrow:")
+    assert "Spanish review: ¿Qué me recomiendas?\nIt means: What do you recommend?" in briefing.text
+
+
+# --- /phrase ----------------------------------------------------------------
+
+def test_phrase_help_goes_word_by_word_then_slow_then_normal():
+    briefing = build_phrase_help(PHRASE)
+    foreign = [(segment.text, segment.slow) for segment in briefing.segments if segment.foreign]
+    assert foreign == [
+        ("Qué", True), ("me", True), ("recomiendas", True),
+        ("¿Qué me recomiendas?", True),
+        ("¿Qué me recomiendas?", False),
+    ]
+    assert briefing.text == (
+        "¿Qué me recomiendas?\nIt means: What do you recommend? Great at restaurants.\n"
+        "Word by word: Qué · me · recomiendas"
+    )
+
+
+def test_phrase_help_for_a_single_word_skips_word_by_word():
+    briefing = build_phrase_help(Phrase("Spanish", "¡Ánimo!", "Keep your chin up!"))
+    assert [segment.text for segment in briefing.segments if segment.foreign] == ["¡Ánimo!", "¡Ánimo!"]
+    assert "Word by word" not in briefing.text

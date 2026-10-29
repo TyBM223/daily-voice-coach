@@ -93,8 +93,10 @@ tests/
 - The bot edits tasks.json too (v2): `/add` appends a line, and checking a task off adds `"done": "YYYY-MM-DD"`. A daily task counts as done only on that date; any other task is hidden from the next day on and cleared out of the file on the next edit. The file keeps one task per line so it stays easy to edit by hand. Writes go through a temp file, and a file that can't be read is never overwritten.
 - `data/log.json` records what got done each day (`{"YYYY-MM-DD": {"done": [...]}}`), for the evening recap and v3's streaks and weekly report. A damaged log is left alone, not overwritten.
 - Task buttons are Telegram inline buttons with data `t:<date>:<12-char sha1 of the text>` (under the 64-byte limit). A tap on an earlier day's list is refused and points to `/tasks`. Messages without task buttons carry the "I'm up" keyboard, which Telegram keeps showing.
-- Content rotation: Mon phrase, Tue fact, Wed history, Thu joke, Fri review of Monday's phrase, weekends rotate fact / history / joke. In v1 picks come from the date, so nothing is stored.
-- Closing quote: curated `quotes.json` (Ty's pick over a quotes API), one per day by date, attributions checked by hand. Quotes stay at 22 words or fewer so the busiest briefing fits in 75 seconds; if the file can't be read, the briefing ends with a plain sign-off.
+- Content rotation: Mon phrase, Tue fact, Wed history, Thu joke, Fri review of Monday's phrase, weekends rotate fact / history / joke.
+- Picks come from what's been sent (v2): every morning briefing records its phrase / fact / history / joke and quote under `"sent"` in `data/log.json`, only after it actually goes out. Each deck is walked in order, skipping anything sent; once a deck is used up, the one heard longest ago comes back first. JokeAPI is asked up to 3 times for a joke not told before; Wikipedia events already told are skipped. New deck entries just get their turn. Reviews aren't recorded, so they don't move a phrase's review schedule.
+- Phrase reviews only cover phrases Ty actually heard: Friday's morning slot reviews the newest phrase from the past 6 days (or becomes a fun fact if there isn't one), and the evening check-in adds a quick review 1, 3 and 7 days after a phrase is taught. `/phrase` resends the latest phrase word by word and slowly, then at normal speed, with the spelling.
+- Closing quote: curated `quotes.json` (Ty's pick over a quotes API), a new one each day (picked like the decks above), attributions checked by hand. Quotes stay at 22 words or fewer so the busiest briefing fits in 75 seconds; if the file can't be read, the briefing ends with a plain sign-off.
 
 ## Roadmap
 
@@ -118,9 +120,7 @@ Order Ty approved: 1. tasks from Telegram, 2. midday + evening check-ins, 3. phr
 Check-in style: midday is text only (with task buttons); the evening is a short voice note + text.
 - [x] Group 1: today's tasks as buttons on the briefing and on `/tasks` (tap to check off, tap again to undo); `/add <task>` and `/add tomorrow <task>`; `/help` and a "/" command menu (built and tested with stand-in messages; waiting on a live try)
 - [x] Group 2: midday check-in at 12:30 on weekdays (one line on what's left, with task buttons; skipped when there are no tasks) and an evening wrap-up at 6:00 PM every day (short voice note: what got done, what's open, tomorrow's weather and first task; open tasks get Done buttons, and one-offs also get Tomorrow / Drop). Built and dry-run against the real task list; waiting on a live evening
-- [ ] Phrase memory: never repeat a new phrase; spaced review after 1, 3, 7 days
-- [ ] No repeated facts/jokes (history log)
-- [ ] Phrase help from Telegram: `/phrase` resends the spelling plus a slowed-down clip of the phrase
+- [x] Group 3: no repeats (phrases, facts, history, jokes and quotes picked from the sent history in `data/log.json`); spaced phrase reviews in the evening 1, 3 and 7 days after a phrase is taught; `/phrase` resends the latest phrase word by word, slowly, then at normal speed, with the spelling. Built and dry-run; waiting on a live week
 - [ ] Optional (ask first): top news headlines from free RSS feeds (no key), in the briefing or on `/news`
 - [ ] Game-day heads-up for Ty's teams: San Francisco 49ers (NFL), Miami Heat (NBA), Auburn Tigers (college football), Chelsea FC (soccer). Opponent, start time in Ty's time zone, and TV channel when known. Teams go in config.yaml so anyone can set their own. Ty doesn't follow hockey or baseball
 - [ ] Sports headlines and standout stats from today and yesterday, for those teams and leagues

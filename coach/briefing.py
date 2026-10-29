@@ -1,5 +1,5 @@
-"""Builds what the coach says: the morning briefing and the evening wrap-up (each a spoken
-script split into voice segments, plus a written copy), and the one-line midday check-in."""
+"""Builds what the coach says: the morning briefing, the evening wrap-up and /phrase help (each
+a spoken script split into voice segments, plus a written copy), and the one-line midday check-in."""
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -179,12 +179,16 @@ def build_evening(
     tasks: list[Task] | None,
     tomorrow_weather: Weather | None,
     tomorrow_tasks: list[Task] | None,
+    review: Phrase | None = None,
 ) -> Briefing:
-    """The evening wrap-up: how today went, then a look at tomorrow. Short, about 20-30 seconds.
-    tasks / tomorrow_tasks are None when tasks.json couldn't be read."""
+    """The evening wrap-up: how today went, a quick phrase review on review days, then a look at
+    tomorrow. Short, about 20-30 seconds. tasks / tomorrow_tasks are None when tasks.json couldn't be read."""
     script = _Script()
     script.say(f"Evening, {name}.")
-    written = [f"Evening, {name}.", _recap(script, tasks), _tomorrow(script, tomorrow_weather, tomorrow_tasks)]
+    written = [f"Evening, {name}.", _recap(script, tasks)]
+    if review:
+        written.append(_evening_review(script, review))
+    written.append(_tomorrow(script, tomorrow_weather, tomorrow_tasks))
     closing = _evening_closing(tasks)
     script.say(closing)
     written.append(closing)
@@ -228,6 +232,39 @@ def _tomorrow(script: _Script, weather: Weather | None, tasks: list[Task] | None
         script.say(f"First up: {_bare(first)}.")
         written.append(f"First up: {first}")
     return "\n".join(written)
+
+
+def _evening_review(script: _Script, phrase: Phrase) -> str:
+    script.say(f"Quick {phrase.language} review. Remember this one?")
+    script.say(phrase.phrase, foreign=True)
+    script.say(f"It means: {phrase.meaning}")
+    return f"{phrase.language} review: {phrase.phrase}\nIt means: {phrase.meaning}"
+
+
+def build_phrase_help(phrase: Phrase) -> Briefing:
+    """/phrase: the phrase word by word and slowly, then at normal speed, with the spelling written out."""
+    script = _Script()
+    words = _words(phrase.phrase)
+    if len(words) > 1:
+        script.say("Here it is, word by word.")
+        for word in words:
+            script.say(word, foreign=True, slow=True)
+        script.say("All together, slowly:")
+    else:
+        script.say("Here it is, slowly:")
+    script.say(phrase.phrase, foreign=True, slow=True)
+    script.say("And at normal speed:")
+    script.say(phrase.phrase, foreign=True)
+    note = f" {phrase.note}" if phrase.note else ""
+    text = f"{phrase.phrase}\nIt means: {phrase.meaning}{note}"
+    if len(words) > 1:
+        text += "\nWord by word: " + " · ".join(words)
+    return Briefing(script.segments, text)
+
+
+def _words(phrase: str) -> list[str]:
+    """The phrase's words without punctuation, e.g. "¿Qué tal?" -> ["Qué", "tal"]."""
+    return [word for word in (raw.strip("¿?¡!.,;:") for raw in phrase.split()) if word]
 
 
 def _evening_closing(tasks: list[Task] | None) -> str:
