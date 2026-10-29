@@ -16,7 +16,8 @@ voice: en-GB-RyanNeural         # any edge-tts voice name
 phrase_voice: es-MX-JorgeNeural # speaks the phrase; match it to language_to_learn
 
 schedule:
-  morning: "08:00"
+  morning_weekdays: "09:00"   # Monday to Friday
+  morning_weekends: "08:00"
   midday: "12:30"    # v2
   evening: "18:00"   # v2
 

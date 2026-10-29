@@ -77,7 +77,8 @@ tests/
 - httpx request logging is kept at WARNING because Telegram URLs contain the bot token. Every log line also goes through `RedactingFormatter`, because python-telegram-bot puts the token in some error messages. Logs go to the console and `data/coach.log`.
 - Main voice: en-GB-RyanNeural (British, Ty's pick).
 - Delivery: one Telegram message per briefing (voice note with the text as its caption; text goes separately only if it's over 1024 characters). If the voice fails, text only.
-- Scheduling: a job checks the clock every minute instead of one 8:00 timer, so a laptop that was asleep at 8:00 still sends when it wakes, up to 3 hours late. `data/state.json` records the last date sent so restarts never double-send.
+- Morning time: 9:00 on weekdays, 8:00 on weekends (`morning_weekdays` / `morning_weekends` in config.yaml; Ty asked for 9:00 on weekdays on 2026-10-29).
+- Scheduling: a job checks the clock every minute instead of setting one timer, so a laptop that was asleep at the morning time still sends when it wakes, up to 3 hours late. `data/state.json` records the last date sent so restarts never double-send.
 - `coach/data/tasks.json` format:
   ```json
   {"tasks": [
@@ -114,6 +115,9 @@ Done when Ty gets a voice note every morning without touching anything.
 - [ ] Add tasks from Telegram: `/add <task>`
 - [ ] Phrase help from Telegram: `/phrase` resends the spelling plus a slowed-down clip of the phrase
 - [ ] Optional (ask first): top news headlines from free RSS feeds (no key), in the briefing or on `/news`
+- [ ] Game-day heads-up for Ty's teams: San Francisco 49ers (NFL), Miami Heat (NBA), Auburn Tigers (college football), Chelsea FC (soccer). Opponent, start time in Ty's time zone, and TV channel when known. Teams go in config.yaml so anyone can set their own. Ty doesn't follow hockey or baseball
+- [ ] Sports headlines and standout stats from today and yesterday, for those teams and leagues
+- Sports notes for the v2 checkpoint: pick free, no-card sources then (candidates to verify: league or ESPN RSS feeds for headlines; ESPN's public but unofficial JSON endpoints or TheSportsDB's free tier for schedules). The busiest briefing is already near 75 seconds, so sports needs room: game days only, a short line, or its own message
 - [ ] Optional (ask first): sync with a free task app (Google Tasks API)
 - [ ] Optional (ask first): Ollama-generated briefing script
 

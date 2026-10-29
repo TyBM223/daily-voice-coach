@@ -15,7 +15,7 @@ def test_config_loads_with_required_settings():
     assert config["temperature_unit"] in {"fahrenheit", "celsius"}
     assert config["voice"] and config["phrase_voice"]
 
-    for slot in ("morning", "midday", "evening"):
+    for slot in ("morning_weekdays", "morning_weekends", "midday", "evening"):
         hour, minute = map(int, config["schedule"][slot].split(":"))
         assert 0 <= hour < 24 and 0 <= minute < 60
 

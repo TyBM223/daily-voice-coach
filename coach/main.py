@@ -37,7 +37,7 @@ AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
 STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 
-MORNING_GRACE = timedelta(hours=3)  # laptop asleep at 8:00? Still send if it wakes before 11:00
+MORNING_GRACE = timedelta(hours=3)  # laptop asleep at 9:00? Still send if it wakes before noon
 CHECK_EVERY_SECONDS = 60
 SEND_ATTEMPTS = 3
 RETRY_SECONDS = 20
@@ -88,6 +88,11 @@ async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> No
             await asyncio.sleep(RETRY_SECONDS)
 
 
+def morning_time(schedule: dict, day: date) -> time:
+    """The briefing time for this day: config.yaml has one for weekdays and one for weekends."""
+    return time.fromisoformat(schedule["morning_weekends" if day.weekday() >= 5 else "morning_weekdays"])
+
+
 def morning_due(now: datetime, morning: time, last_sent: date | None, grace: timedelta = MORNING_GRACE) -> bool:
     """True if today's briefing hasn't gone out and it's between the morning time and the grace cutoff."""
     start = now.replace(hour=morning.hour, minute=morning.minute, second=0, microsecond=0)
@@ -107,12 +112,12 @@ def save_last_sent(day: date | None, path: Path = STATE_PATH) -> None:
 
 
 async def check_morning(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Runs every minute. Watching the clock, instead of one timer at 8:00, means the
-    briefing still goes out if the laptop was asleep or the coach restarted at 8:00."""
+    """Runs every minute. Watching the clock, instead of one timer, means the briefing
+    still goes out if the laptop was asleep or the coach restarted at the morning time."""
     config, chat_id = context.job.data
     now = datetime.now(ZoneInfo(config["timezone"]))
     last_sent = load_last_sent()
-    if not morning_due(now, time.fromisoformat(config["schedule"]["morning"]), last_sent):
+    if not morning_due(now, morning_time(config["schedule"], now.date()), last_sent):
         return
     save_last_sent(now.date())  # claim today first, so a slow send can't overlap the next check
     try:
@@ -125,7 +130,9 @@ async def check_morning(context: ContextTypes.DEFAULT_TYPE) -> None:
 def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app = Application.builder().token(token).build()
     app.job_queue.run_repeating(check_morning, interval=CHECK_EVERY_SECONDS, first=1, data=(config, chat_id))
-    log.info("Coach running. Morning briefing at %s (%s).", config["schedule"]["morning"], config["timezone"])
+    schedule = config["schedule"]
+    log.info("Coach running. Morning briefing at %s on weekdays and %s on weekends (%s).",
+             schedule["morning_weekdays"], schedule["morning_weekends"], config["timezone"])
     app.run_polling()
 
 

@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from coach.main import RedactingFormatter, load_last_sent, morning_due, save_last_sent
+from coach.main import RedactingFormatter, load_last_sent, morning_due, morning_time, save_last_sent
 
 TZ = ZoneInfo("America/New_York")
 EIGHT = time(8, 0)
@@ -25,6 +25,17 @@ def at(hour, minute=0, day=29):
 ])
 def test_morning_due(now, last_sent, due):
     assert morning_due(now, EIGHT, last_sent) is due
+
+
+@pytest.mark.parametrize("day, expected", [
+    (date(2026, 10, 30), time(9, 0)),  # Friday
+    (date(2026, 10, 31), time(8, 0)),  # Saturday
+    (date(2026, 11, 1), time(8, 0)),  # Sunday
+    (date(2026, 11, 2), time(9, 0)),  # Monday
+])
+def test_weekdays_and_weekends_have_their_own_time(day, expected):
+    schedule = {"morning_weekdays": "09:00", "morning_weekends": "08:00"}
+    assert morning_time(schedule, day) == expected
 
 
 def test_last_sent_round_trip(tmp_path):
