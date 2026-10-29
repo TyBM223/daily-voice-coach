@@ -6,22 +6,33 @@ Each entry is {"text": ...} plus optionally "repeat": "daily" or "date": "YYYY-M
   - "date"             -> shows only on that day
 """
 import json
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+
+@dataclass
+class Task:
+    text: str
+    daily: bool = False
 
 
 class TasksFileError(Exception):
     """tasks.json exists but can't be read, so the briefing should say so."""
 
 
-def load_tasks(path: Path, today: date) -> list[str]:
-    """Return the text of every task that applies today. A missing file means no tasks."""
+def load_tasks(path: Path, today: date) -> list[Task]:
+    """Return every task that applies today, in file order. A missing file means no tasks."""
     if not path.exists():
         return []
     try:
         # utf-8-sig: Notepad sometimes saves a byte-order mark that plain utf-8 json can't read.
         entries = json.loads(path.read_text(encoding="utf-8-sig"))["tasks"]
-        return [entry["text"].strip() for entry in entries if _applies(entry, today)]
+        return [
+            Task(entry["text"].strip(), daily=entry.get("repeat") == "daily")
+            for entry in entries
+            if _applies(entry, today)
+        ]
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError) as e:
         raise TasksFileError(f"Couldn't read {path.name}: {e}") from e
 

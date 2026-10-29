@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from coach.sources.tasks import TasksFileError, load_tasks
+from coach.sources.tasks import Task, TasksFileError, load_tasks
 
 TODAY = date(2026, 10, 29)
 EXAMPLE = Path(__file__).resolve().parent.parent / "coach" / "tasks.example.json"
@@ -24,7 +24,11 @@ def test_daily_undated_and_dated_rules(tmp_path):
         {"text": "Call mom", "date": "2026-10-30"},
         {"text": "Old thing", "date": "2026-10-01"},
     ])
-    assert load_tasks(path, TODAY) == ["Gym", "Finish cover letter", "Dentist"]
+    assert load_tasks(path, TODAY) == [
+        Task("Gym", daily=True),
+        Task("Finish cover letter"),
+        Task("Dentist"),
+    ]
 
 
 def test_missing_file_means_no_tasks(tmp_path):
@@ -36,11 +40,11 @@ def test_empty_list(tmp_path):
 
 
 def test_notepad_byte_order_mark_is_fine(tmp_path):
-    assert load_tasks(write(tmp_path, [{"text": "Gym"}], encoding="utf-8-sig"), TODAY) == ["Gym"]
+    assert load_tasks(write(tmp_path, [{"text": "Gym"}], encoding="utf-8-sig"), TODAY) == [Task("Gym")]
 
 
 def test_example_file_is_valid():
-    assert "Gym" in load_tasks(EXAMPLE, TODAY)
+    assert Task("Gym", daily=True) in load_tasks(EXAMPLE, TODAY)
 
 
 @pytest.mark.parametrize("content", [

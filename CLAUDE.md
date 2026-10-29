@@ -74,7 +74,10 @@ tests/
 - Language to learn: Spanish (placeholder; Ty may change it).
 - Voice notes are sent as MP3, no ffmpeg.
 - The language phrase is spoken by a native voice (`phrase_voice` in config.yaml, es-MX-JorgeNeural for Spanish). The briefing is synthesized as separate clips and the MP3 bytes are joined; edge-tts output has no headers, so this is safe.
-- httpx request logging is kept at WARNING because Telegram URLs contain the bot token.
+- httpx request logging is kept at WARNING because Telegram URLs contain the bot token. Every log line also goes through `RedactingFormatter`, because python-telegram-bot puts the token in some error messages. Logs go to the console and `data/coach.log`.
+- Main voice: en-GB-RyanNeural (British, Ty's pick).
+- Delivery: one Telegram message per briefing (voice note with the text as its caption; text goes separately only if it's over 1024 characters). If the voice fails, text only.
+- Scheduling: a job checks the clock every minute instead of one 8:00 timer, so a laptop that was asleep at 8:00 still sends when it wakes, up to 3 hours late. `data/state.json` records the last date sent so restarts never double-send.
 - `coach/data/tasks.json` format:
   ```json
   {"tasks": [
@@ -94,9 +97,10 @@ tests/
 - [x] Pick the daily content item from the weekday rotation (grim Wikipedia events skipped)
 - [x] Build the script from a template (~45-75 sec spoken). Casual, direct, encouraging, not cheesy
 - [x] Convert to audio with edge-tts (phrase in a native voice, clips joined)
-- [ ] Send voice note + text version to Telegram
-- [ ] `--now` runs it once immediately
-- [ ] Scheduled run at the morning time
+- [x] "Top priority" line (first one-off task) and a slowed-down second repeat of the phrase
+- [ ] Send voice note + text version to Telegram (built and unit-tested; waiting on the first live send)
+- [x] `--now` runs it once immediately (`--chat-id` finds the chat ID)
+- [ ] Scheduled run at the morning time (built; waiting on a live morning)
 
 Done when Ty gets a voice note every morning without touching anything.
 

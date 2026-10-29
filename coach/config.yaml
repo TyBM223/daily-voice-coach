@@ -12,7 +12,7 @@ temperature_unit: fahrenheit   # or celsius
 
 language_to_learn: Spanish
 
-voice: en-US-GuyNeural          # any edge-tts voice name
+voice: en-GB-RyanNeural         # any edge-tts voice name
 phrase_voice: es-MX-JorgeNeural # speaks the phrase; match it to language_to_learn
 
 schedule:

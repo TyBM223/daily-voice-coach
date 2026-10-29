@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from coach.sources.content import ContentItem, Fact, HistoryMoment, Joke, Phrase
+from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
 MAX_SPOKEN_TASKS = 5
@@ -19,6 +20,7 @@ SIGN_OFFS = (
 class Segment:
     text: str
     foreign: bool = False  # spoken by the phrase voice, in the language being learned
+    slow: bool = False  # spoken slower, so a new phrase is easy to make out
 
 
 @dataclass
@@ -33,13 +35,13 @@ class _Script:
     def __init__(self):
         self.segments: list[Segment] = []
 
-    def say(self, text: str, *, foreign: bool = False, beat: bool = False) -> None:
+    def say(self, text: str, *, foreign: bool = False, beat: bool = False, slow: bool = False) -> None:
         """beat=True starts a new segment, which leaves a short pause before it."""
         last = self.segments[-1] if self.segments else None
-        if last and not last.foreign and not foreign and not beat:
+        if last and not last.foreign and not last.slow and not foreign and not beat and not slow:
             last.text += " " + text
         else:
-            self.segments.append(Segment(text, foreign))
+            self.segments.append(Segment(text, foreign, slow))
 
 
 def build_briefing(
@@ -47,7 +49,7 @@ def build_briefing(
     place: str,
     now: datetime,
     weather: Weather | None,
-    tasks: list[str] | None,
+    tasks: list[Task] | None,
     item: ContentItem,
 ) -> Briefing:
     """Assemble the briefing. tasks is None when tasks.json couldn't be read."""
@@ -94,7 +96,7 @@ def _rain(chance: int) -> str:
     return f"Rain chance is {chance} percent. Bring an umbrella."
 
 
-def _tasks(script: _Script, tasks: list[str] | None) -> str:
+def _tasks(script: _Script, tasks: list[Task] | None) -> str:
     if tasks is None:
         script.say("Heads up: I couldn't read your task file. Check tasks.json for a typo.")
         return "Tasks: couldn't read tasks.json. Check it for a typo."
@@ -102,15 +104,24 @@ def _tasks(script: _Script, tasks: list[str] | None) -> str:
         script.say("Nothing on your list today. Pick one thing that moves you forward and get it done.")
         return "Today: nothing on the list. Pick one thing that moves you forward."
 
+    texts = [task.text for task in tasks]
+    written = "Today:\n" + "\n".join(f"- {text}" for text in texts)
     if len(tasks) == 1:
-        script.say(f"One thing on your list today: {_bare(tasks[0])}.")
-    else:
-        spoken = [_bare(task) for task in tasks[:MAX_SPOKEN_TASKS]]
-        extra = len(tasks) - len(spoken)
-        if extra:
-            spoken.append(f"{extra} more")
-        script.say(f"You've got {len(tasks)} things on your list: {_join(spoken)}.")
-    return "Today:\n" + "\n".join(f"- {task}" for task in tasks)
+        script.say(f"One thing on your list today: {_bare(texts[0])}.")
+        return written
+
+    spoken = [_bare(text) for text in texts[:MAX_SPOKEN_TASKS]]
+    extra = len(texts) - len(spoken)
+    if extra:
+        spoken.append(f"{extra} more")
+    script.say(f"You've got {len(texts)} things on your list: {_join(spoken)}.")
+
+    # The first one-off task is the day's priority; daily habits are routine.
+    priority = next((task.text for task in tasks if not task.daily), None)
+    if priority:
+        script.say(f"Top priority: {_bare(priority)}. Knock that out first.")
+        written += f"\nTop priority: {priority}"
+    return written
 
 
 def _content(script: _Script, item: ContentItem) -> str:
@@ -119,8 +130,8 @@ def _content(script: _Script, item: ContentItem) -> str:
             note = f" {item.note}" if item.note else ""
             script.say(f"Your {item.language} phrase of the week:")
             script.say(item.phrase, foreign=True)
-            script.say(f"It means: {item.meaning}{note} One more time:")
-            script.say(item.phrase, foreign=True)
+            script.say(f"It means: {item.meaning}{note} One more time, slowly:")
+            script.say(item.phrase, foreign=True, slow=True)
             return f"{item.language} phrase of the week: {item.phrase}\nIt means: {item.meaning}{note}"
         case Phrase(review=True):
             script.say(f"Quick {item.language} review from earlier this week. Remember this one?")

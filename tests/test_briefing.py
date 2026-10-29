@@ -5,6 +5,7 @@ import pytest
 
 from coach.briefing import build_briefing
 from coach.sources.content import Fact, HistoryMoment, Joke, Phrase
+from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
 NOW = datetime(2026, 10, 29, 8, 0, tzinfo=ZoneInfo("America/New_York"))
@@ -14,7 +15,10 @@ PHRASE = Phrase("Spanish", "¿Qué me recomiendas?", "What do you recommend?", "
 
 
 def build(weather=WEATHER, tasks=("Gym",), item=FACT, now=NOW):
-    return build_briefing("Ty", "Tampa", now, weather, None if tasks is None else list(tasks), item)
+    """tasks may mix plain strings (one-off tasks) and Task objects."""
+    if tasks is not None:
+        tasks = [task if isinstance(task, Task) else Task(task) for task in tasks]
+    return build_briefing("Ty", "Tampa", now, weather, tasks, item)
 
 
 def spoken(briefing):
@@ -63,16 +67,30 @@ def test_long_task_list_is_trimmed_when_spoken_but_not_written():
     assert all(f"- {task}" in briefing.text for task in tasks)
 
 
+def test_top_priority_is_the_first_one_off_task():
+    tasks = [Task("Gym", daily=True), "Finish cover letter", "Call mom"]
+    briefing = build(tasks=tasks)
+    assert "Top priority: Finish cover letter. Knock that out first." in spoken(briefing)
+    assert "- Call mom\nTop priority: Finish cover letter\n" in briefing.text
+
+
+def test_no_priority_line_when_everything_is_daily_or_theres_one_task():
+    assert "Top priority" not in spoken(build(tasks=[Task("Gym", daily=True), Task("Read", daily=True)]))
+    assert "Top priority" not in spoken(build(tasks=["Finish cover letter"]))
+
+
 def test_unreadable_tasks_file():
     briefing = build(tasks=None)
     assert "couldn't read your task file" in spoken(briefing)
     assert "Check it for a typo" in briefing.text
 
 
-def test_new_phrase_is_spoken_twice_in_the_phrase_voice():
+def test_new_phrase_is_spoken_twice_in_the_phrase_voice_then_slowly():
     briefing = build(item=PHRASE)
-    foreign = [segment.text for segment in briefing.segments if segment.foreign]
-    assert foreign == ["¿Qué me recomiendas?", "¿Qué me recomiendas?"]
+    foreign = [(segment.text, segment.slow) for segment in briefing.segments if segment.foreign]
+    assert foreign == [("¿Qué me recomiendas?", False), ("¿Qué me recomiendas?", True)]
+    assert "One more time, slowly:" in spoken(briefing)
+    assert not any(segment.slow for segment in briefing.segments if not segment.foreign)
     assert all("¿Qué" not in segment.text for segment in briefing.segments if not segment.foreign)
     assert "It means: What do you recommend? Great at restaurants." in briefing.text
 
