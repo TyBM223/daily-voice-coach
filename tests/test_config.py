@@ -13,6 +13,7 @@ def test_config_loads_with_required_settings():
     assert -90 <= config["location"]["lat"] <= 90
     assert -180 <= config["location"]["lon"] <= 180
     assert config["temperature_unit"] in {"fahrenheit", "celsius"}
+    assert config["voice"] and config["phrase_voice"]
 
     for slot in ("morning", "midday", "evening"):
         hour, minute = map(int, config["schedule"][slot].split(":"))

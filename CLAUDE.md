@@ -73,6 +73,8 @@ tests/
 - Project lives in `Documents\coach` on Windows, not WSL (WSL shuts down when idle).
 - Language to learn: Spanish (placeholder; Ty may change it).
 - Voice notes are sent as MP3, no ffmpeg.
+- The language phrase is spoken by a native voice (`phrase_voice` in config.yaml, es-MX-JorgeNeural for Spanish). The briefing is synthesized as separate clips and the MP3 bytes are joined; edge-tts output has no headers, so this is safe.
+- httpx request logging is kept at WARNING because Telegram URLs contain the bot token.
 - `coach/data/tasks.json` format:
   ```json
   {"tasks": [
@@ -90,8 +92,8 @@ tests/
 - [x] Fetch weather (current temp, high/low, rain chance, short summary)
 - [x] Load today's tasks from `data/tasks.json`
 - [x] Pick the daily content item from the weekday rotation (grim Wikipedia events skipped)
-- [ ] Build the script from a template (~45-75 sec spoken). Casual, direct, encouraging, not cheesy
-- [ ] Convert to audio with edge-tts
+- [x] Build the script from a template (~45-75 sec spoken). Casual, direct, encouraging, not cheesy
+- [x] Convert to audio with edge-tts (phrase in a native voice, clips joined)
 - [ ] Send voice note + text version to Telegram
 - [ ] `--now` runs it once immediately
 - [ ] Scheduled run at the morning time

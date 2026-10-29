@@ -21,6 +21,7 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
    - no date shows every day until you delete it
    - `"date": "YYYY-MM-DD"` shows only on that day
 6. Run the tests: `.venv\Scripts\python -m pytest`
+7. Try a briefing: `.venv\Scripts\python -m coach.main --now` prints it and saves the MP3 to `coach/data/audio/`. Sending to Telegram is next on the roadmap.
 
 ## License
 
