@@ -57,6 +57,7 @@ coach/
   config.yaml      times, location, language, voice, content rotation
   briefing.py      builds the spoken script
   messages.py      understands plain-word messages ("done gym")
+  progress.py      streaks and the weekly report
   sources/         weather.py, tasks.py, content.py
   voice/tts.py
   delivery/telegram.py
@@ -133,9 +134,8 @@ Order Ty approved: 1. plain-word replies, 2. streaks + Sunday report, 3. voice n
 - [x] Group 1: plain-word replies without AI (`coach/messages.py`): done / undo / move / drop / add / what's left / help / thanks, several tasks at once ("done gym and applications"), loose matching on part of a task's name, a question back with buttons when it's a toss-up, and no action on questions ("did you see the game?"). Daily habits can't be moved or dropped, and finished tasks aren't reopened. On wake days a request also counts as "I'm up". Built and dry-run; waiting on live use
 - [ ] Voice replies transcribed locally with faster-whisper
 - [ ] Questions about the day's content, by text or voice ("how do you spell that?", "say it slower", "tell me more about that history fact"). Answers come from local Ollama, grounded in the Wikipedia article so it doesn't make things up
-- [ ] Streaks per recurring goal (gym, applications, project hours, social plans)
 - [ ] Evening check-in asks about unfinished tasks and records the answer
-- [ ] Weekly Sunday report: completion rate, streaks, wins
+- [x] Group 2: streaks and the Sunday report (`coach/progress.py`). The evening check-in says "That's 4 days straight on Gym" (runs of 2+), or names a streak on the line if a habit is still open. Sundays add the week: completion rate, each habit's days, wins (one-offs finished), best streak, and the weakest habit if it slipped below half, with a verdict instead of the usual closing. The evening saves the day's whole list under "list" in log.json, so the rate only counts days with a saved list. Built and dry-run; first real one Sunday Nov 1
 - [ ] Tone: honest. If things slipped, say so plainly and help re-plan; no guilt-trips, no sugarcoating
 
 ### v4: Conversation (checkpoint before starting)

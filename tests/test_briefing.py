@@ -313,3 +313,61 @@ def test_game_day_stays_under_85_seconds():
              game("Auburn", "Ole Miss", False, 30, 12, 45, tv="SEC Network")]
     briefing = build(tasks=tasks, item=long_history, quote=longest_quote, now=FRIDAY_9AM, games=games)
     assert len(spoken(briefing).split()) <= 190
+
+
+# --- streaks and the Sunday report ------------------------------------------
+
+from coach.progress import Week  # noqa: E402
+
+
+def test_evening_mentions_a_streak_going_and_one_on_the_line():
+    briefing = build_evening("Ty", [GYM_DONE, APPS], TOMORROW, [], streaks={"Gym": 4, APPS.text: 3})
+    text = spoken(briefing)
+    assert "That's 4 days straight on Gym." in text
+    assert "Send two job applications is still open, with a 3-day streak on the line." in text
+
+
+def test_short_runs_arent_mentioned():
+    briefing = build_evening("Ty", [GYM_DONE, APPS], TOMORROW, [], streaks={"Gym": 1, APPS.text: 1})
+    assert "straight" not in spoken(briefing) and "on the line" not in spoken(briefing)
+
+
+def test_two_streaks_going():
+    apps_done = Task(APPS.text, daily=True, done=True)
+    text = spoken(build_evening("Ty", [GYM_DONE, apps_done], TOMORROW, [], streaks={"Gym": 5, APPS.text: 2}))
+    assert "Streaks going: 5 days on Gym and 2 days on Send two job applications." in text
+
+
+SUNDAY_WEEK = Week(datetime(2026, 10, 26).date(), datetime(2026, 11, 1).date(), 7, done=23, planned=30,
+                   habits={"Gym": 6, "Send two job applications": 2},
+                   wins=["Finish cover letter", "Call mom"], best_streak=("Gym", 4))
+
+
+def test_sunday_week_report():
+    briefing = build_evening("Ty", [GYM_DONE], TOMORROW, [], week=SUNDAY_WEEK)
+    text = spoken(briefing)
+    assert ("Here's your week. You checked off 23 of 30 tasks this week. That's 77 percent. "
+            "Gym: 6 of 7 days. Send two job applications: 2 of 7 days. "
+            "Wins: Finish cover letter and Call mom. Best streak going: Gym, 4 days. "
+            "Send two job applications slipped to 2 of 7 days. Pick one thing to fix for next week.") in text
+    assert text.endswith("Solid week, with room to tighten up.")
+    assert ("This week (Oct 26 – Nov 1): 23 of 30 done (77%)\nGym: 6/7 days\n"
+            "Send two job applications: 2/7 days\nWins: Finish cover letter, Call mom\n"
+            "Best streak: Gym, 4 days") in briefing.text
+
+
+def test_first_sunday_says_how_long_its_been_tracking():
+    first = Week(datetime(2026, 10, 26).date(), datetime(2026, 11, 1).date(), 4, done=7, planned=8, habits={"Gym": 4})
+    text = spoken(build_evening("Ty", [GYM_DONE], TOMORROW, [], week=first))
+    assert "You checked off 7 of 8 tasks over the 4 days I've been keeping track. That's 88 percent." in text
+    assert "Gym: 4 of 4 days." in text
+    assert text.endswith("Strong week. Keep it rolling.")
+
+
+def test_sunday_stays_under_a_minute():
+    tasks = [Task(f"Habit number {n}", daily=True, done=True) for n in range(1, 5)]
+    big = Week(datetime(2026, 10, 26).date(), datetime(2026, 11, 1).date(), 7, done=20, planned=40,
+               habits={task.text: 1 for task in tasks}, wins=[f"Win number {n}" for n in range(1, 9)],
+               best_streak=("Habit number 1", 9))
+    briefing = build_evening("Ty", tasks, TOMORROW, [Task("Call mom")], streaks={t.text: 9 for t in tasks}, week=big)
+    assert len(spoken(briefing).split()) <= 150  # about 70 seconds, even for a packed week

@@ -3,6 +3,7 @@ a spoken script split into voice segments, plus a written copy), and the one-lin
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from coach.progress import Week
 from coach.sources.content import ContentItem, Fact, HistoryMoment, Joke, Phrase, Quote
 from coach.sources.sports import Game, clock, matchup, result
 from coach.sources.tasks import Task
@@ -211,16 +212,24 @@ def build_evening(
     tomorrow_weather: Weather | None,
     tomorrow_tasks: list[Task] | None,
     review: Phrase | None = None,
+    streaks: dict[str, int] | None = None,
+    week: Week | None = None,
 ) -> Briefing:
-    """The evening wrap-up: how today went, a quick phrase review on review days, then a look at
-    tomorrow. Short, about 20-30 seconds. tasks / tomorrow_tasks are None when tasks.json couldn't be read."""
+    """The evening wrap-up: how today went and any streaks, the week on Sundays (week is given),
+    a quick phrase review on review days, then a look at tomorrow. About 20-30 seconds, longer on
+    Sundays. tasks / tomorrow_tasks are None when tasks.json couldn't be read. streaks maps each
+    daily task to its run of days (see progress.streak)."""
     script = _Script()
     script.say(f"Evening, {name}.")
     written = [f"Evening, {name}.", _recap(script, tasks)]
+    if week:
+        written.append(_week(script, week))  # it names the best streak, so the daily streak lines can rest
+    else:
+        written.append(_streak_lines(script, tasks, streaks or {}))
     if review:
         written.append(_evening_review(script, review))
     written.append(_tomorrow(script, tomorrow_weather, tomorrow_tasks))
-    closing = _evening_closing(tasks)
+    closing = _week_verdict(week) if week else _evening_closing(tasks)
     script.say(closing)
     written.append(closing)
     return Briefing(script.segments, "\n\n".join(line for line in written if line))
@@ -263,6 +272,68 @@ def _tomorrow(script: _Script, weather: Weather | None, tasks: list[Task] | None
         script.say(f"First up: {_bare(first)}.")
         written.append(f"First up: {first}")
     return "\n".join(written)
+
+
+def _streak_lines(script: _Script, tasks: list[Task] | None, streaks: dict[str, int]) -> str:
+    """"That's 4 days straight on Gym." / "Gym is still open, with a 4-day streak on the line."
+    Only runs of 2 days or more are worth a mention."""
+    daily = [(task, streaks.get(task.text, 0)) for task in tasks or [] if task.daily]
+    going = [(task, days) for task, days in daily if task.done and days >= 2]
+    on_the_line = [(task, days) for task, days in daily if not task.done and days >= 2]
+    lines = []
+    if len(going) == 1:
+        lines.append(f"That's {going[0][1]} days straight on {_bare(going[0][0].text)}.")
+    elif going:
+        lines.append("Streaks going: " + _join([f"{days} days on {_bare(task.text)}" for task, days in going]) + ".")
+    for task, days in on_the_line:
+        lines.append(f"{_bare(task.text)} is still open, with a {days}-day streak on the line.")
+    if not lines:
+        return ""
+    script.say(" ".join(lines))
+    return " ".join(lines)
+
+
+def _week(script: _Script, week: Week) -> str:
+    """Sunday's look back: completion rate, each habit, wins, best streak, and what slipped."""
+    days = min(week.days_tracked, 7)
+    span = "this week" if days == 7 else f"over the {days} days I've been keeping track"
+    spoken, written = ["Here's your week."], [f"This week ({_span(week)})"]
+    if week.rate is not None:
+        spoken.append(f"You checked off {week.done} of {week.planned} tasks {span}. That's {week.rate} percent.")
+        written[0] += f": {week.done} of {week.planned} done ({week.rate}%)"
+    for habit, count in week.habits.items():
+        spoken.append(f"{_bare(habit)}: {count} of {days} days.")
+        written.append(f"{habit}: {count}/{days} days")
+    if week.wins:
+        names = [_bare(win) for win in week.wins[:MAX_SPOKEN_TASKS]]
+        extra = len(week.wins) - len(names)
+        spoken.append("Wins: " + _join(names + ([f"{extra} more"] if extra else [])) + ".")
+        written.append("Wins: " + ", ".join(week.wins))
+    if week.best_streak:
+        habit, run = week.best_streak
+        spoken.append(f"Best streak going: {_bare(habit)}, {run} days.")
+        written.append(f"Best streak: {habit}, {run} days")
+    slipped = [(habit, count) for habit, count in week.habits.items() if days >= 3 and count < days / 2]
+    if slipped:
+        habit, count = min(slipped, key=lambda pair: pair[1])
+        spoken.append(f"{_bare(habit)} slipped to {count} of {days} days. Pick one thing to fix for next week.")
+    script.say(" ".join(spoken))
+    return "\n".join(written)
+
+
+def _span(week: Week) -> str:
+    """"Oct 26 – Nov 1"."""
+    return f"{week.start:%b} {week.start.day} – {week.end:%b} {week.end.day}"
+
+
+def _week_verdict(week: Week) -> str:
+    if week.rate is None:
+        return "That's the week. Rest up."
+    if week.rate >= 80:
+        return "Strong week. Keep it rolling."
+    if week.rate >= 50:
+        return "Solid week, with room to tighten up."
+    return "Rough week. Next week's a fresh start."
 
 
 def _evening_review(script: _Script, phrase: Phrase) -> str:

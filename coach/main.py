@@ -40,6 +40,7 @@ from coach.delivery.telegram import (
     task_buttons,
 )
 from coach.messages import Intent, parse, respond
+from coach.progress import load_days, record_list, streak, week
 from coach.sources.content import (
     REVIEW_AFTER_DAYS,
     content_kind,
@@ -215,7 +216,15 @@ async def run_evening(config: dict, bot: Bot, chat_id: str, now: datetime) -> No
         fetch_weather, location["lat"], location["lon"], config["timezone"], config["temperature_unit"], days_ahead=1
     )
     review = recent_phrase(today, load_history(DAY_LOG_PATH), config["language_to_learn"], ages=REVIEW_AFTER_DAYS)
-    evening = build_evening(config["owner_name"], tasks, weather, upcoming, review)
+    streaks, week_report = {}, None
+    if tasks is not None:
+        record_list(DAY_LOG_PATH, today, [task.text for task in tasks])  # for Sunday's completion rate
+        days = load_days(DAY_LOG_PATH)
+        habits = [task.text for task in tasks if task.daily]
+        streaks = {habit: streak(days, habit, today) for habit in habits}
+        if today.weekday() == 6:  # Sunday: the week in review
+            week_report = week(days, habits, today)
+    evening = build_evening(config["owner_name"], tasks, weather, upcoming, review, streaks, week_report)
     audio_path = await _record(evening, config, EVENING_AUDIO_PATH)
     buttons = evening_buttons(tasks or [], today)
     await _send_with_retries(lambda: send_briefing(bot, chat_id, evening.text, audio_path, buttons),
