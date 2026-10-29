@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from coach.briefing import build_briefing
-from coach.sources.content import Fact, HistoryMoment, Joke, Phrase
+from coach.sources.content import Fact, HistoryMoment, Joke, Phrase, Quote
 from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
@@ -12,13 +12,14 @@ NOW = datetime(2026, 10, 29, 8, 0, tzinfo=ZoneInfo("America/New_York"))
 WEATHER = Weather(current_temp=78, high=83, low=68, rain_chance=2, summary="overcast")
 FACT = Fact("Octopuses have three hearts and blue blood.")
 PHRASE = Phrase("Spanish", "¿Qué me recomiendas?", "What do you recommend?", "Great at restaurants.")
+QUOTE = Quote("Make each day your masterpiece.", "John Wooden")
 
 
-def build(weather=WEATHER, tasks=("Gym",), item=FACT, now=NOW):
+def build(weather=WEATHER, tasks=("Gym",), item=FACT, now=NOW, quote=QUOTE):
     """tasks may mix plain strings (one-off tasks) and Task objects."""
     if tasks is not None:
         tasks = [task if isinstance(task, Task) else Task(task) for task in tasks]
-    return build_briefing("Ty", "Tampa", now, weather, tasks, item)
+    return build_briefing("Ty", "Tampa", now, weather, tasks, item, quote)
 
 
 def spoken(briefing):
@@ -124,14 +125,22 @@ def test_english_lines_are_merged_into_one_segment():
     assert len(build().segments) == 1
 
 
-def test_sign_off_changes_by_day():
-    tomorrow = NOW.replace(day=30)
-    assert spoken(build()).split(". ")[-1] != spoken(build(now=tomorrow)).split(". ")[-1]
+def test_ends_on_the_quote():
+    briefing = build()
+    assert spoken(briefing).endswith("One for the road: Make each day your masterpiece. That's John Wooden.")
+    assert briefing.text.endswith('One for the road: "Make each day your masterpiece." — John Wooden')
+
+
+def test_unreadable_quotes_fall_back_to_a_sign_off():
+    briefing = build(quote=None)
+    assert spoken(briefing).endswith("That's the rundown. Go get it.")
+    assert briefing.text.endswith("That's the rundown. Go get it.")
 
 
 def test_busiest_day_stays_under_75_seconds():
     # About 130 spoken words a minute, so 75 seconds is roughly 165 words.
     long_history = HistoryMoment(" ".join(["word"] * 45) + ".", year=1919)
     tasks = [f"Send applications to company number {n}" for n in range(1, 8)]
-    words = len(spoken(build(tasks=tasks, item=long_history)).split())
+    longest_quote = Quote(" ".join(["word"] * 22) + ".", "Martin Luther King Jr.")  # the cap in test_content
+    words = len(spoken(build(tasks=tasks, item=long_history, quote=longest_quote)).split())
     assert words <= 165

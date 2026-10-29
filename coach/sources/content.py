@@ -1,8 +1,9 @@
-"""The daily content slot: a language phrase, fun fact, history moment or joke.
+"""The daily content slot (a language phrase, fun fact, history moment or joke) and the closing quote.
 
 config.yaml's content_rotation decides which kind runs each weekday. Picks from
 the local decks follow the date, so v1 stores nothing: each kind walks through
-its deck in order and only repeats once the whole deck has been used.
+its deck in order and only repeats once the whole deck has been used. The
+closing quote works the same way, with a new one every day.
 """
 import json
 import logging
@@ -63,6 +64,13 @@ class Joke:
 ContentItem = Phrase | Fact | HistoryMoment | Joke
 
 
+@dataclass
+class Quote:
+    """Closes every briefing; separate from the content slot."""
+    text: str
+    author: str
+
+
 def content_kind(day: date, rotation: dict) -> str:
     """The content kind scheduled for this day, with "mix" resolved to fact, history or joke."""
     kind = rotation[WEEKDAYS[day.weekday()]]
@@ -89,6 +97,17 @@ def pick_content(day: date, rotation: dict, language: str, client: httpx.Client 
     if kind == "joke":
         return _fetch_joke(client) or Joke(**_deck_entry("jokes", day, "joke", rotation))
     raise ValueError(f"Unknown content kind in config.yaml: {kind}")
+
+
+def pick_quote(day: date) -> Quote | None:
+    """Today's closing quote, or None if quotes.json can't be read (it's meant to be hand-edited)."""
+    try:
+        deck = _load_deck("quotes")
+        entry = deck[(day - EPOCH).days % len(deck)]
+        return Quote(entry["text"].strip(), entry["author"].strip())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, ZeroDivisionError) as e:
+        log.warning("Couldn't read quotes.json: %s", e)
+        return None
 
 
 def _load_deck(name: str) -> list:

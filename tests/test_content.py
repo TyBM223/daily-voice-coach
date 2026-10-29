@@ -11,8 +11,10 @@ from coach.sources.content import (
     HistoryMoment,
     Joke,
     Phrase,
+    Quote,
     content_kind,
     pick_content,
+    pick_quote,
 )
 
 ROTATION = {
@@ -154,6 +156,25 @@ def test_joke_problems_fall_back_to_local_deck(payload, status):
     assert item in local
 
 
+# --- quotes -----------------------------------------------------------------
+
+def test_a_new_quote_every_day_until_the_deck_is_used_up():
+    deck_size = len(content._load_deck("quotes"))
+    days = [MONDAY + timedelta(days=n) for n in range(deck_size)]
+    quotes = [pick_quote(day) for day in days]
+    assert all(isinstance(quote, Quote) for quote in quotes)
+    assert len({quote.text for quote in quotes}) == deck_size
+    assert pick_quote(MONDAY + timedelta(days=deck_size)) == quotes[0]
+
+
+@pytest.mark.parametrize("contents", [None, "{oops", "[]", '[{"text": "No author."}]'])
+def test_unreadable_quotes_give_none(tmp_path, monkeypatch, contents):
+    if contents is not None:
+        (tmp_path / "quotes.json").write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(content, "DECKS_DIR", tmp_path)
+    assert pick_quote(MONDAY) is None
+
+
 # --- decks ------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", ["facts", "history"])
@@ -174,3 +195,15 @@ def test_joke_deck_is_clean():
     deck = content._load_deck("jokes")
     assert all(set(entry) <= {"setup", "punchline"} and entry["setup"].strip() for entry in deck)
     assert len({json.dumps(entry) for entry in deck}) == len(deck), "duplicate jokes"
+
+
+def test_quote_deck_is_clean():
+    deck = content._load_deck("quotes")
+    assert len(deck) >= 60, "about two months before a repeat"
+    for entry in deck:
+        assert set(entry) == {"text", "author"} and entry["author"].strip()
+        assert entry["text"].rstrip()[-1] in ".!?", entry["text"]
+        assert '"' not in entry["text"], "the written copy adds its own quotation marks"
+        # Longer quotes would push the busiest briefing past 75 seconds (see test_briefing).
+        assert len(entry["text"].split()) <= 22, entry["text"]
+    assert len({entry["text"] for entry in deck}) == len(deck), "duplicate quotes"

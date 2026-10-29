@@ -1,6 +1,6 @@
 # Coach
 
-A free, self-hosted voice assistant that checks in through the day on Telegram: date, weather, today's tasks, and a daily joke, fun fact, history moment or foreign-language phrase. It's built for accountability: a coach checking in, not notification spam.
+A free, self-hosted voice assistant that checks in through the day on Telegram: date, weather, today's tasks, a daily joke, fun fact, history moment or foreign-language phrase, and a quote to close it out. It's built for accountability: a coach checking in, not notification spam.
 
 Everything runs on free tools with no paid APIs and no credit card: Open-Meteo for weather, edge-tts for the voice, Wikipedia and JokeAPI for content, and a Telegram bot for delivery.
 

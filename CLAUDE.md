@@ -88,6 +88,7 @@ tests/
   ```
   `"repeat": "daily"` shows every day; no date shows every day until deleted; `"date"` shows only on that day.
 - Content rotation: Mon phrase, Tue fact, Wed history, Thu joke, Fri review of Monday's phrase, weekends rotate fact / history / joke. In v1 picks come from the date, so nothing is stored.
+- Closing quote: curated `quotes.json` (Ty's pick over a quotes API), one per day by date, attributions checked by hand. Quotes stay at 22 words or fewer so the busiest briefing fits in 75 seconds; if the file can't be read, the briefing ends with a plain sign-off.
 
 ## Roadmap
 
@@ -98,7 +99,8 @@ tests/
 - [x] Build the script from a template (~45-75 sec spoken). Casual, direct, encouraging, not cheesy
 - [x] Convert to audio with edge-tts (phrase in a native voice, clips joined)
 - [x] "Top priority" line (first one-off task) and a slowed-down second repeat of the phrase
-- [ ] Send voice note + text version to Telegram (built and unit-tested; waiting on the first live send)
+- [x] Briefing ends on a new quote each day (`content_data/quotes.json`) instead of a fixed sign-off
+- [x] Send voice note + text version to Telegram (first live send 2026-10-29)
 - [x] `--now` runs it once immediately (`--chat-id` finds the chat ID)
 - [ ] Scheduled run at the morning time (built; waiting on a live morning)
 

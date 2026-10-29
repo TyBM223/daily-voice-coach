@@ -23,7 +23,7 @@ from telegram.ext import Application, ContextTypes
 
 from coach.briefing import Briefing, build_briefing
 from coach.delivery.telegram import recent_chats, send_briefing
-from coach.sources.content import pick_content
+from coach.sources.content import pick_content, pick_quote
 from coach.sources.tasks import TasksFileError, load_tasks
 from coach.sources.weather import fetch_weather
 from coach.voice.tts import EdgeTTS, render
@@ -61,7 +61,7 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
         log.warning("%s", e)
         tasks = None
     item = await asyncio.to_thread(pick_content, today, config["content_rotation"], config["language_to_learn"])
-    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item)
+    briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, pick_quote(today))
 
     try:
         audio = await render(briefing.segments, EdgeTTS(), config["voice"], config["phrase_voice"])

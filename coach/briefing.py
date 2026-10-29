@@ -2,18 +2,12 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from coach.sources.content import ContentItem, Fact, HistoryMoment, Joke, Phrase
+from coach.sources.content import ContentItem, Fact, HistoryMoment, Joke, Phrase, Quote
 from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
 MAX_SPOKEN_TASKS = 5
-SIGN_OFFS = (
-    "That's the rundown. Go get it.",
-    "That's it for now. Make today count.",
-    "That's the plan. Get after it.",
-    "You know what to do. Let's go.",
-    "That's your morning. One thing at a time.",
-)
+FALLBACK_SIGN_OFF = "That's the rundown. Go get it."  # only if quotes.json can't be read
 
 
 @dataclass
@@ -51,18 +45,17 @@ def build_briefing(
     weather: Weather | None,
     tasks: list[Task] | None,
     item: ContentItem,
+    quote: Quote | None,
 ) -> Briefing:
-    """Assemble the briefing. tasks is None when tasks.json couldn't be read."""
+    """Assemble the briefing. tasks is None when tasks.json couldn't be read; quote, when quotes.json couldn't."""
     script = _Script()
     written = [
         _greeting(script, name, now),
         _weather(script, weather, place),
         _tasks(script, tasks),
         _content(script, item),
+        _closing(script, quote),
     ]
-    sign_off = SIGN_OFFS[now.toordinal() % len(SIGN_OFFS)]
-    script.say(sign_off)
-    written.append(sign_off)
     return Briefing(script.segments, "\n\n".join(written))
 
 
@@ -156,6 +149,14 @@ def _content(script: _Script, item: ContentItem) -> str:
             script.say(item.punchline, beat=True)
             return f"Joke of the day: {item.setup}\n{item.punchline}"
     raise TypeError(f"Unknown content item: {item!r}")
+
+
+def _closing(script: _Script, quote: Quote | None) -> str:
+    if quote is None:
+        script.say(FALLBACK_SIGN_OFF)
+        return FALLBACK_SIGN_OFF
+    script.say(f"One for the road: {quote.text} That's {quote.author}.")
+    return f'One for the road: "{quote.text}" — {quote.author}'
 
 
 def _bare(task: str) -> str:
