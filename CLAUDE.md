@@ -56,6 +56,7 @@ coach/
   main.py          entrypoint
   config.yaml      times, location, language, voice, content rotation
   briefing.py      builds the spoken script
+  messages.py      understands plain-word messages ("done gym")
   sources/         weather.py, tasks.py, content.py
   voice/tts.py
   delivery/telegram.py
@@ -127,8 +128,9 @@ Check-in style: midday is text only (with task buttons); the evening is a short 
 - [ ] Optional (ask first): sync with a free task app (Google Tasks API)
 - [ ] Optional (ask first): Ollama-generated briefing script
 
-### v3: Talk back (checkpoint before starting)
-- [ ] Telegram commands + natural replies ("done gym", "push resume to tomorrow")
+### v3: Talk back (started 2026-10-29)
+Order Ty approved: 1. plain-word replies, 2. streaks + Sunday report, 3. voice notes in (faster-whisper, ask before installing), 4. questions about the day (local hermes3, already installed; runs 100% on the RX 6700S at ~32 tokens/s, ~20 s to load cold). Checkpoint after each group.
+- [x] Group 1: plain-word replies without AI (`coach/messages.py`): done / undo / move / drop / add / what's left / help / thanks, several tasks at once ("done gym and applications"), loose matching on part of a task's name, a question back with buttons when it's a toss-up, and no action on questions ("did you see the game?"). Daily habits can't be moved or dropped, and finished tasks aren't reopened. On wake days a request also counts as "I'm up". Built and dry-run; waiting on live use
 - [ ] Voice replies transcribed locally with faster-whisper
 - [ ] Questions about the day's content, by text or voice ("how do you spell that?", "say it slower", "tell me more about that history fact"). Answers come from local Ollama, grounded in the Wikipedia article so it doesn't make things up
 - [ ] Streaks per recurring goal (gym, applications, project hours, social plans)

@@ -39,6 +39,7 @@ from coach.delivery.telegram import (
     sports_html,
     task_buttons,
 )
+from coach.messages import Intent, parse, respond
 from coach.sources.content import (
     REVIEW_AFTER_DAYS,
     content_kind,
@@ -86,9 +87,12 @@ HELP = (
     "/sports: your teams' next games, latest results and headlines.\n"
     f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.\n'
     "Midday on weekdays I check what's left, and in the evening I recap the day. "
-    "Tap anything you finished, or move it to tomorrow."
+    "Tap anything you finished, or move it to tomorrow.\n\n"
+    "You can also just type: done gym · done gym and applications · push resume to tomorrow · "
+    "drop the walk · add call recruiter tomorrow · what's left"
 )
-CANT_READ_YET = "I can't read regular messages yet. For now: /tasks for today's list, /add to add a task, /help for the rest."
+DIDNT_CATCH = ("I didn't catch that. Try: done gym, push resume to tomorrow, drop the walk, "
+               "add call recruiter, or what's left. /help has the rest.")
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -232,7 +236,7 @@ def morning_time(schedule: dict, day: date) -> time:
 def wake_reply(sent_at: datetime, schedule: dict, last_sent: date | None, text: str | None) -> str | None:
     """Ty messaged the bot at sent_at. None means send today's briefing now; otherwise, a short reply."""
     if last_sent == sent_at.date():
-        return "Today's briefing already went out. It's just above." if text == WAKE_BUTTON else CANT_READ_YET
+        return "Today's briefing already went out. It's just above." if text == WAKE_BUTTON else DIDNT_CATCH
     setting = _morning_setting(schedule, sent_at.date())
     if setting == WAKE:
         earliest = time.fromisoformat(schedule["wake_earliest"])
@@ -328,21 +332,39 @@ async def check_schedule(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A message from Ty. On wake days, the first one after wake_earliest sends the briefing."""
+    """A message from Ty: a plain-word request ("done gym"), and/or, on wake days, the first
+    message after wake_earliest, which sends the briefing."""
     config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
     tz = ZoneInfo(config["timezone"])
     message = update.effective_message
     sent_at = message.date.astimezone(tz)
     if sent_at.date() != datetime.now(tz).date():
         return  # sent before midnight and only picked up now because the laptop was asleep
+    intent = parse(message.text) if message.text and message.text != WAKE_BUTTON else None
+    if intent:
+        await message.reply_text(**_answer(intent, sent_at.date()))
     reply = wake_reply(sent_at, config["schedule"], load_last_sent(), message.text)
     if reply:
-        await message.reply_text(reply, reply_markup=KEYBOARD)
+        if not intent:  # a request already got its answer; the schedule note would just be noise
+            await message.reply_text(reply, reply_markup=KEYBOARD)
         return
     await context.bot.send_chat_action(chat_id, ChatAction.RECORD_VOICE)
     if not await send_morning_once(config, context.bot, chat_id, datetime.now(tz)):
         await message.reply_text("Something went wrong building your briefing. Tap again in a minute.",
                                  reply_markup=KEYBOARD)
+
+
+def _answer(intent: Intent, today: date) -> dict:
+    """The reply to a plain-word request, as reply_text arguments."""
+    if intent.kind == "help":
+        return {"text": HELP, "reply_markup": KEYBOARD}
+    if intent.kind == "thanks":
+        return {"text": "Anytime.", "reply_markup": KEYBOARD}
+    try:
+        reply = respond(intent, today, TASKS_PATH, DAY_LOG_PATH)
+    except TasksFileError as e:
+        return {"text": f"{e}. Check it for a typo.", "reply_markup": KEYBOARD}
+    return {"text": reply.text, "reply_markup": reply.buttons or KEYBOARD}
 
 
 def _today(context: ContextTypes.DEFAULT_TYPE) -> date:

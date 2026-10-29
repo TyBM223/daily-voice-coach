@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from coach.main import (
-    CANT_READ_YET,
+    DIDNT_CATCH,
     RedactingFormatter,
     acquire_lock,
     load_last_sent,
@@ -56,7 +56,7 @@ def test_weekdays_and_weekends_have_their_own_time(day, expected):
     (at(6, 0, day=31), None, "I'm up", None),
     (at(2, 30, day=31), None, "I'm up", "after 6:00 AM"),  # still Friday night, really
     (at(10, 14, day=31), date(2026, 10, 31), "I'm up", "already went out"),
-    (at(10, 14, day=31), date(2026, 10, 31), "done gym", CANT_READ_YET),  # not the button: say what works
+    (at(10, 14, day=31), date(2026, 10, 31), "done gym", DIDNT_CATCH),  # not the button: say what works
     (at(7, 0, day=30), None, "I'm up", "comes at 9:00 AM"),  # Friday: weekdays keep their set time
     (at(10, 30, day=30), None, "I'm up", None),  # Friday, past 9:00 and nothing sent (laptop was asleep)
     (at(10, 30, day=30), date(2026, 10, 30), "I'm up", "already went out"),
