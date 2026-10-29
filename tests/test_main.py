@@ -7,6 +7,7 @@ import pytest
 from coach.main import (
     CANT_READ_YET,
     RedactingFormatter,
+    acquire_lock,
     load_last_sent,
     morning_time,
     parse_add,
@@ -99,6 +100,17 @@ def test_corrupt_state_file_is_treated_as_not_sent(tmp_path):
     path = tmp_path / "state.json"
     path.write_text("{oops", encoding="utf-8")
     assert load_last_sent(path) is None
+
+
+def test_only_one_copy_can_hold_the_lock(tmp_path):
+    path = tmp_path / "coach.lock"
+    first = acquire_lock(path)
+    assert first is not None
+    assert acquire_lock(path) is None  # a second copy would quit
+    first.close()  # the first copy exits
+    again = acquire_lock(path)
+    assert again is not None
+    again.close()
 
 
 def test_token_is_masked_in_messages_and_tracebacks():

@@ -145,6 +145,11 @@ Check-in style: midday is text only (with task buttons); the evening is a short 
 
 ### Deployment (checkpoint required)
 Start by running locally. Always-on options to discuss later: keep the home PC running, an old laptop/phone as a mini server, or a free cloud tier. Many "free" cloud tiers need a credit card: flag that, and don't sign up for anything without Ty's OK.
+- [x] Chosen 2026-10-29 (Ty's OK): the laptop, started at login by a shortcut in Ty's Startup folder (`Coach (Myles).lnk` → `.venv\Scripts\pythonw.exe -m coach.main`, start in the repo). No admin needed; delete the shortcut to undo. Task Scheduler was the alternative (it can restart after a crash, but a logon task needs admin).
+- [x] Code for it: runs with no window (logs only to `data/coach.log`), keeps retrying if Wi-Fi isn't up at login (`bootstrap_retries=-1`), and holds `data/coach.lock` so a second copy quits instead of double-sending
+- [ ] Ty sets Windows to never sleep while plugged in (and "do nothing" on lid close, if he closes it). Ty changes these himself; they're system settings.
+- Limit: the coach runs only while Ty is signed in. After an overnight update restart it starts at sign-in, and the 3-hour window covers a late morning.
+- Later, if Ty wants the laptop free: an old phone or a Raspberry Pi as an always-on box.
 
 ## Known free-tier risks
 - edge-tts uses Microsoft's public endpoint and could break. Fallback: Piper.

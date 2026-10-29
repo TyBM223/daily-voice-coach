@@ -28,6 +28,12 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 8. Run it for real: `.venv\Scripts\python -m coach.main`. Leave it running and the briefing arrives every morning at the time in `config.yaml`. If the computer was asleep then, it goes out as soon as it wakes, up to three hours late.
    - A day set to `wake` (weekends, by default) has no set time: the briefing comes when you tap the "I'm up" button under the chat (any message works), or at `wake_latest` if you don't.
    - The bot only answers your own chat, so it's fine that its username is public.
+9. Start it automatically when you sign in (Windows), so there's no window to keep open:
+   - Press Win+R, type `shell:startup`, and press Enter.
+   - In that folder, right-click → New → Shortcut. For the location, enter the full path to `.venv\Scripts\pythonw.exe` in this folder, followed by ` -m coach.main`. Name it "Coach".
+   - Right-click the shortcut → Properties, and set "Start in" to this folder.
+   - `pythonw` runs it with no window; everything goes to `coach/data/coach.log`. Only one copy runs at a time, so starting it twice is harmless. To stop it, end `pythonw.exe` in Task Manager. To turn auto-start off, delete the shortcut.
+   - Set Windows to never sleep while plugged in (Settings → System → Power & battery), or check-ins wait until the computer wakes (up to 3 hours late).
 
 ## Using it from Telegram
 

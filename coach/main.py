@@ -14,6 +14,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import IO
 from zoneinfo import ZoneInfo
 
 import yaml
@@ -65,6 +66,7 @@ STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 TASKS_PATH = DATA_DIR / "tasks.json"
 DAY_LOG_PATH = DATA_DIR / "log.json"  # what got done and what was sent, each day
+LOCK_PATH = DATA_DIR / "coach.lock"  # held while the scheduler runs
 
 GRACE = timedelta(hours=3)  # laptop asleep at check-in time? Still send if it wakes within 3 hours
 WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
@@ -492,7 +494,8 @@ def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends. Midday %s (weekdays), evening %s.",
              config["timezone"], schedule["morning_weekdays"], schedule["morning_weekends"],
              schedule["midday"], schedule["evening"])
-    app.run_polling()
+    # Started at login, Wi-Fi may not be up yet: keep trying to reach Telegram instead of quitting.
+    app.run_polling(bootstrap_retries=-1)
 
 
 async def send_now(config: dict, token: str, chat_id: str) -> None:
@@ -521,10 +524,32 @@ class RedactingFormatter(logging.Formatter):
         return text.replace(self.secret, "[BOT TOKEN]") if self.secret else text
 
 
+def acquire_lock(path: Path = LOCK_PATH) -> IO | None:
+    """Lock data/coach.lock for as long as this process runs, so only one copy of the coach
+    can send at a time (say, one started at login and one by hand). Returns the open file,
+    which must stay open, or None if another copy holds the lock. The OS releases it on exit."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
 def setup_logging(token: str) -> None:
     DATA_DIR.mkdir(exist_ok=True)
     formatter = RedactingFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s", token)
-    handlers = [logging.StreamHandler(), logging.FileHandler(LOG_PATH, encoding="utf-8")]
+    handlers = [logging.FileHandler(LOG_PATH, encoding="utf-8")]
+    if sys.stderr:  # None when started with pythonw (no window): then the log file is all there is
+        handlers.append(logging.StreamHandler())
     for handler in handlers:
         handler.setFormatter(formatter)
     logging.basicConfig(level=logging.INFO, handlers=handlers)
@@ -544,7 +569,8 @@ def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     setup_logging(token)
-    sys.stdout.reconfigure(errors="replace")  # older Windows consoles can't print every accent
+    if sys.stdout:
+        sys.stdout.reconfigure(errors="replace")  # older Windows consoles can't print every accent
     config = load_config()
 
     try:
@@ -561,6 +587,10 @@ def main() -> None:
             print(f"\nAudio: {audio_path or 'none (the voice service did not answer)'}")
             print("Not sent: add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env to send it to Telegram.")
         elif token and chat_id:
+            lock = acquire_lock()
+            if lock is None:
+                log.info("Another copy of the coach is already running, so this one is quitting.")
+                return
             run_scheduler(config, token, chat_id)
         else:
             raise SystemExit("Scheduled mode needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env (see .env.example).")
