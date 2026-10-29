@@ -2,7 +2,15 @@ import asyncio
 from datetime import date
 from types import SimpleNamespace
 
-from coach.delivery.telegram import KEYBOARD, NO_VOICE_NOTE, WAKE_BUTTON, recent_chats, send_briefing, task_buttons
+from coach.delivery.telegram import (
+    KEYBOARD,
+    NO_VOICE_NOTE,
+    WAKE_BUTTON,
+    evening_buttons,
+    recent_chats,
+    send_briefing,
+    task_buttons,
+)
 from coach.sources.tasks import Task, task_key
 
 DAY = date(2026, 10, 30)
@@ -80,6 +88,23 @@ def test_task_buttons_show_whats_done():
 
 def test_no_tasks_no_buttons():
     assert task_buttons([], DAY) is None
+
+
+def test_evening_buttons_cover_only_open_tasks():
+    tasks = [Task("Gym", daily=True, done=True), Task("Send applications", daily=True), Task("Call mom")]
+    rows = evening_buttons(tasks, DAY).inline_keyboard
+    assert [[button.text for button in row] for row in rows] == [
+        ["⬜ Send applications"],  # daily: check off only
+        ["⬜ Call mom"],
+        ["↪ Tomorrow", "✕ Drop"],  # one-off: can also move or drop
+    ]
+    key = task_key("Call mom")
+    assert [button.callback_data for button in rows[2]] == [f"m:2026-10-30:{key}", f"x:2026-10-30:{key}"]
+    assert rows[1][0].callback_data == f"e:2026-10-30:{key}"
+
+
+def test_no_evening_buttons_once_everything_is_done():
+    assert evening_buttons([Task("Gym", daily=True, done=True)], DAY) is None
 
 
 def test_recent_chats_lists_who_messaged_the_bot():

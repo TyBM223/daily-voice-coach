@@ -4,7 +4,16 @@ from pathlib import Path
 
 import pytest
 
-from coach.sources.tasks import Task, TasksFileError, add_task, load_tasks, task_key, toggle_done
+from coach.sources.tasks import (
+    Task,
+    TasksFileError,
+    add_task,
+    drop_task,
+    load_tasks,
+    move_to_tomorrow,
+    task_key,
+    toggle_done,
+)
 
 TODAY = date(2026, 10, 29)
 TOMORROW = date(2026, 10, 30)
@@ -152,6 +161,42 @@ def test_a_broken_file_is_never_overwritten(tmp_path):
     with pytest.raises(TasksFileError):
         add_task(path, "Run", TODAY)
     assert path.read_text(encoding="utf-8") == '{"tasks": [{"text": "Gym"} {"text": "Run"}]}'
+
+
+# --- moving and dropping (evening check-in) ---------------------------------
+
+def test_moved_task_skips_today_then_stays_until_done(tmp_path):
+    path = write(tmp_path, [{"text": "Call mom", "date": "2026-10-29"}, {"text": "Finish cover letter"}])
+    assert move_to_tomorrow(path, task_key("Call mom"), TODAY) == Task("Call mom")
+    assert load_tasks(path, TODAY) == [Task("Finish cover letter")]
+    assert Task("Call mom") in load_tasks(path, TOMORROW)
+    assert Task("Call mom") in load_tasks(path, date(2026, 11, 5))  # no longer tied to one date
+
+
+def test_a_moved_task_that_was_checked_off_comes_back_open(tmp_path):
+    path = write(tmp_path, [{"text": "Finish cover letter", "done": "2026-10-29"}])
+    move_to_tomorrow(path, task_key("Finish cover letter"), TODAY)
+    assert load_tasks(path, TOMORROW) == [Task("Finish cover letter")]
+
+
+def test_drop_deletes_a_one_off_task(tmp_path):
+    path = write(tmp_path, [{"text": "Gym", "repeat": "daily"}, {"text": "Finish cover letter"}])
+    assert drop_task(path, task_key("Finish cover letter"), TODAY) == Task("Finish cover letter")
+    assert load_tasks(path, TODAY) == [Task("Gym", daily=True)]
+
+
+def test_daily_tasks_cant_be_moved_or_dropped(tmp_path):
+    path = write(tmp_path, [{"text": "Gym", "repeat": "daily"}])
+    assert move_to_tomorrow(path, task_key("Gym"), TODAY) is None
+    assert drop_task(path, task_key("Gym"), TODAY) is None
+    assert load_tasks(path, TODAY) == [Task("Gym", daily=True)]
+
+
+def test_bad_from_date_is_a_clear_error(tmp_path):
+    path = tmp_path / "tasks.json"
+    path.write_text('{"tasks": [{"text": "Call", "from": "soon"}]}', encoding="utf-8")
+    with pytest.raises(TasksFileError):
+        load_tasks(path, TODAY)
 
 
 # --- adding tasks -----------------------------------------------------------

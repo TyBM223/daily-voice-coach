@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -22,10 +23,21 @@ from telegram.constants import ChatAction
 from telegram.error import BadRequest, NetworkError, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from coach.briefing import Briefing, build_briefing
-from coach.delivery.telegram import KEYBOARD, TASK_TAP, WAKE_BUTTON, recent_chats, send_briefing, task_buttons
+from coach.briefing import Briefing, build_briefing, build_evening, build_midday
+from coach.delivery.telegram import (
+    EVENING_DONE,
+    EVENING_DROP,
+    EVENING_MOVE,
+    KEYBOARD,
+    TASK_TAP,
+    WAKE_BUTTON,
+    evening_buttons,
+    recent_chats,
+    send_briefing,
+    task_buttons,
+)
 from coach.sources.content import pick_content, pick_quote
-from coach.sources.tasks import TasksFileError, add_task, load_tasks, toggle_done
+from coach.sources.tasks import TasksFileError, add_task, drop_task, load_tasks, move_to_tomorrow, toggle_done
 from coach.sources.weather import fetch_weather
 from coach.voice.tts import EdgeTTS, render
 
@@ -34,13 +46,14 @@ log = logging.getLogger("coach")
 PACKAGE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = PACKAGE_DIR / "config.yaml"
 DATA_DIR = PACKAGE_DIR / "data"
-AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
+MORNING_AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
+EVENING_AUDIO_PATH = DATA_DIR / "audio" / "evening.mp3"
 STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 TASKS_PATH = DATA_DIR / "tasks.json"
 DAY_LOG_PATH = DATA_DIR / "log.json"  # what got done each day
 
-MORNING_GRACE = timedelta(hours=3)  # laptop asleep at 9:00? Still send if it wakes before noon
+GRACE = timedelta(hours=3)  # laptop asleep at check-in time? Still send if it wakes within 3 hours
 WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
 CHECK_EVERY_SECONDS = 60
 SEND_ATTEMPTS = 3
@@ -51,7 +64,9 @@ HELP = (
     "/tasks: today's list. Tap a task to check it off, tap again to undo.\n"
     "/add Finish resume: add a task. It stays on your list until it's done.\n"
     "/add tomorrow Call mom: add a task for tomorrow only.\n"
-    f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.'
+    f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.\n'
+    "Midday on weekdays I check what's left, and in the evening I recap the day. "
+    "Tap anything you finished, or move it to tomorrow."
 )
 CANT_READ_YET = "I can't read regular messages yet. For now: /tasks for today's list, /add to add a task, /help for the rest."
 
@@ -75,31 +90,76 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
         tasks = None
     item = await asyncio.to_thread(pick_content, today, config["content_rotation"], config["language_to_learn"])
     briefing = build_briefing(config["owner_name"], location["name"], now, weather, tasks, item, pick_quote(today))
+    return briefing, await _record(briefing, config, MORNING_AUDIO_PATH)
 
+
+async def _record(script: Briefing, config: dict, path: Path) -> Path | None:
+    """Save the script as an MP3 at path, or return None if the voice fails (text only, then)."""
     try:
-        audio = await render(briefing.segments, EdgeTTS(), config["voice"], config["phrase_voice"])
-    except Exception as e:  # edge-tts fails in several ways; any of them means text only today
+        audio = await render(script.segments, EdgeTTS(), config["voice"], config["phrase_voice"])
+    except Exception as e:  # edge-tts fails in several ways; any of them means text only
         log.warning("Voice unavailable, sending text only: %s", e)
-        return briefing, None
-    AUDIO_PATH.parent.mkdir(parents=True, exist_ok=True)
-    AUDIO_PATH.write_bytes(audio)
-    return briefing, AUDIO_PATH
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(audio)
+    return path
 
 
-async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
-    """Build today's briefing and send it, retrying if the network is briefly down."""
-    briefing, audio_path = await prepare_morning(config, now)
-    buttons = today_buttons(now.date())
+async def _send_with_retries(send: Callable[[], Awaitable], what: str) -> None:
+    """Run a Telegram send, retrying if the network is briefly down."""
     for attempt in range(1, SEND_ATTEMPTS + 1):
         try:
-            await send_briefing(bot, chat_id, briefing.text, audio_path, buttons)
-            log.info("Morning briefing sent")
+            await send()
+            log.info("%s sent", what)
             return
         except NetworkError as e:
             if attempt == SEND_ATTEMPTS:
                 raise
             log.warning("Telegram send failed (%s); retrying in %s seconds", e, RETRY_SECONDS)
             await asyncio.sleep(RETRY_SECONDS)
+
+
+async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
+    """Build today's briefing and send it, with today's task buttons."""
+    briefing, audio_path = await prepare_morning(config, now)
+    buttons = today_buttons(now.date())
+    await _send_with_retries(lambda: send_briefing(bot, chat_id, briefing.text, audio_path, buttons),
+                             "Morning briefing")
+
+
+async def run_midday(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
+    """One line on what's left, with today's task buttons. Skipped when there are no tasks."""
+    today = now.date()
+    try:
+        tasks = load_tasks(TASKS_PATH, today)
+    except TasksFileError as e:
+        log.warning("Midday check-in skipped: %s", e)
+        return
+    text = build_midday(tasks)
+    if text is None:
+        log.info("Midday check-in skipped: no tasks today")
+        return
+    buttons = task_buttons(tasks, today) if any(not task.done for task in tasks) else KEYBOARD
+    await _send_with_retries(lambda: bot.send_message(chat_id, text, reply_markup=buttons), "Midday check-in")
+
+
+async def run_evening(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
+    """How today went and a look at tomorrow: a short voice note, with buttons for what's still open."""
+    today = now.date()
+    try:
+        tasks, upcoming = load_tasks(TASKS_PATH, today), load_tasks(TASKS_PATH, today + timedelta(days=1))
+    except TasksFileError as e:
+        log.warning("%s", e)
+        tasks = upcoming = None
+    location = config["location"]
+    weather = await asyncio.to_thread(
+        fetch_weather, location["lat"], location["lon"], config["timezone"], config["temperature_unit"], days_ahead=1
+    )
+    evening = build_evening(config["owner_name"], tasks, weather, upcoming)
+    audio_path = await _record(evening, config, EVENING_AUDIO_PATH)
+    buttons = evening_buttons(tasks or [], today)
+    await _send_with_retries(lambda: send_briefing(bot, chat_id, evening.text, audio_path, buttons),
+                             "Evening check-in")
 
 
 def _morning_setting(schedule: dict, day: date) -> str:
@@ -141,54 +201,74 @@ def parse_add(args: str, today: date) -> tuple[str, date | None]:
     return args.strip(), None
 
 
-def today_buttons(day: date) -> InlineKeyboardMarkup | None:
-    """The day's task buttons, or None if there are no tasks or tasks.json can't be read."""
+def today_buttons(day: date, evening: bool = False) -> InlineKeyboardMarkup | None:
+    """The day's task buttons (the evening version, if asked), or None if there are no tasks
+    or tasks.json can't be read."""
     try:
-        return task_buttons(load_tasks(TASKS_PATH, day), day)
+        tasks = load_tasks(TASKS_PATH, day)
     except TasksFileError as e:
         log.warning("%s", e)
         return None
+    return evening_buttons(tasks, day) if evening else task_buttons(tasks, day)
 
 
-def morning_due(now: datetime, morning: time, last_sent: date | None, grace: timedelta = MORNING_GRACE) -> bool:
-    """True if today's briefing hasn't gone out and it's between the morning time and the grace cutoff."""
-    start = now.replace(hour=morning.hour, minute=morning.minute, second=0, microsecond=0)
-    return last_sent != now.date() and start <= now < start + grace
+def slot_due(now: datetime, start: time, last_sent: date | None, grace: timedelta = GRACE) -> bool:
+    """True if today's check-in hasn't gone out and it's between its time and the grace cutoff."""
+    begins = now.replace(hour=start.hour, minute=start.minute, second=0, microsecond=0)
+    return last_sent != now.date() and begins <= now < begins + grace
 
 
-def load_last_sent(path: Path = STATE_PATH) -> date | None:
+def load_last_sent(path: Path = STATE_PATH, slot: str = "morning") -> date | None:
+    """The last day this slot (morning, midday or evening) went out."""
     try:
-        return date.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["last_morning"])
+        return date.fromisoformat(json.loads(path.read_text(encoding="utf-8"))[f"last_{slot}"])
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
 
 
-def save_last_sent(day: date | None, path: Path = STATE_PATH) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"last_morning": day.isoformat() if day else None}), encoding="utf-8")
-
-
-async def send_morning_once(config: dict, bot: Bot, chat_id: str, now: datetime) -> bool:
-    """Send today's briefing. Today is claimed first, so the clock check and a tap can't both
-    send it; if sending fails, the claim is undone so the next check or tap tries again."""
-    last_sent = load_last_sent()
-    save_last_sent(now.date())
+def save_last_sent(day: date | None, path: Path = STATE_PATH, slot: str = "morning") -> None:
     try:
-        await run_morning(config, bot, chat_id, now)
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    state[f"last_{slot}"] = day.isoformat() if day else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+
+async def send_once(slot: str, send: Callable[[], Awaitable], now: datetime) -> bool:
+    """Run today's check-in for this slot. Today is claimed first, so the clock check and a tap can't
+    both send it; if sending fails, the claim is undone so the next check or tap tries again."""
+    last_sent = load_last_sent(slot=slot)
+    save_last_sent(now.date(), slot=slot)
+    try:
+        await send()
         return True
     except Exception:
-        log.exception("Morning briefing failed")
-        save_last_sent(last_sent)
+        log.exception("The %s check-in failed", slot)
+        save_last_sent(last_sent, slot=slot)
         return False
 
 
-async def check_morning(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Runs every minute. Watching the clock, instead of one timer, means the briefing
-    still goes out if the laptop was asleep or the coach restarted at the morning time."""
-    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
+async def send_morning_once(config: dict, bot: Bot, chat_id: str, now: datetime) -> bool:
+    return await send_once("morning", lambda: run_morning(config, bot, chat_id, now), now)
+
+
+async def check_schedule(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs every minute. Watching the clock, instead of setting timers, means a check-in still
+    goes out if the laptop was asleep or the coach restarted at its time (up to 3 hours late)."""
+    config, chat_id, bot = context.bot_data["config"], context.bot_data["chat_id"], context.bot
+    schedule = config["schedule"]
     now = datetime.now(ZoneInfo(config["timezone"]))
-    if morning_due(now, morning_time(config["schedule"], now.date()), load_last_sent()):
-        await send_morning_once(config, context.bot, chat_id, now)
+    today = now.date()
+    if slot_due(now, morning_time(schedule, today), load_last_sent()):
+        await send_morning_once(config, bot, chat_id, now)
+    if today.weekday() < 5 and slot_due(now, time.fromisoformat(schedule["midday"]), load_last_sent(slot="midday")):
+        await send_once("midday", lambda: run_midday(config, bot, chat_id, now), now)
+    if slot_due(now, time.fromisoformat(schedule["evening"]), load_last_sent(slot="evening")):
+        await send_once("evening", lambda: run_evening(config, bot, chat_id, now), now)
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -254,26 +334,32 @@ async def on_unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def on_task_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A tap on a task button: check it off (or back on), then refresh the buttons in place."""
+    """A tap on a task button: check it off (or back on), move it to tomorrow, or drop it,
+    then redraw that message's buttons."""
     query = update.callback_query
     if update.effective_chat.id != int(context.bot_data["chat_id"]):
         return
     today = _today(context)
-    _, day, key = query.data.split(":")
+    action, day, key = query.data.split(":")
     if day != today.isoformat():
         await query.answer("That list is from an earlier day. Send /tasks for today's.")
         return
     try:
-        task = toggle_done(TASKS_PATH, DAY_LOG_PATH, key, today)
+        if action == EVENING_MOVE:
+            task = move_to_tomorrow(TASKS_PATH, key, today)
+            toast = task and f"Moved to tomorrow: {task.text}"
+        elif action == EVENING_DROP:
+            task = drop_task(TASKS_PATH, key, today)
+            toast = task and f"Dropped: {task.text}"
+        else:
+            task = toggle_done(TASKS_PATH, DAY_LOG_PATH, key, today)
+            toast = task and (f"Done: {task.text}" if task.done else f"Back on the list: {task.text}")
     except TasksFileError as e:
         await query.answer(f"{e}. Check it for a typo.", show_alert=True)
         return
-    if task is None:
-        await query.answer("That task changed or was removed. Here's the current list.")
-    else:
-        await query.answer(f"Done: {task.text}" if task.done else f"Back on the list: {task.text}")
+    await query.answer(toast or "That task changed or was removed. Here's the current list.")
     try:
-        await query.edit_message_reply_markup(today_buttons(today))
+        await query.edit_message_reply_markup(today_buttons(today, evening=action != TASK_TAP))
     except BadRequest as e:
         if "not modified" not in str(e).lower():
             raise
@@ -295,7 +381,7 @@ async def _set_commands(app: Application) -> None:
 def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app = Application.builder().token(token).post_init(_set_commands).build()
     app.bot_data.update(config=config, chat_id=chat_id)
-    app.job_queue.run_repeating(check_morning, interval=CHECK_EVERY_SECONDS, first=1)
+    app.job_queue.run_repeating(check_schedule, interval=CHECK_EVERY_SECONDS, first=1)
     # Only Ty's chat counts: the bot's username is public, so messages from anyone else are ignored.
     # Edited messages are skipped too. Handlers are tried in order; the first match wins.
     ty = filters.Chat(chat_id=int(chat_id)) & filters.UpdateType.MESSAGE
@@ -304,10 +390,11 @@ def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app.add_handler(CommandHandler(["help", "start"], on_help, filters=ty))
     app.add_handler(MessageHandler(ty & filters.COMMAND, on_unknown_command))
     app.add_handler(MessageHandler(ty, on_message))
-    app.add_handler(CallbackQueryHandler(on_task_tap, pattern=f"^{TASK_TAP}:"))
+    app.add_handler(CallbackQueryHandler(on_task_tap, pattern=f"^[{TASK_TAP}{EVENING_DONE}{EVENING_MOVE}{EVENING_DROP}]:"))
     schedule = config["schedule"]
-    log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends.",
-             config["timezone"], schedule["morning_weekdays"], schedule["morning_weekends"])
+    log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends. Midday %s (weekdays), evening %s.",
+             config["timezone"], schedule["morning_weekdays"], schedule["morning_weekends"],
+             schedule["midday"], schedule["evening"])
     app.run_polling()
 
 

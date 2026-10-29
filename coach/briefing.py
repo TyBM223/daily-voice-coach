@@ -1,4 +1,5 @@
-"""Builds the morning briefing: a spoken script (split into voice segments) and a written copy."""
+"""Builds what the coach says: the morning briefing and the evening wrap-up (each a spoken
+script split into voice segments, plus a written copy), and the one-line midday check-in."""
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -7,6 +8,7 @@ from coach.sources.tasks import Task
 from coach.sources.weather import Weather
 
 MAX_SPOKEN_TASKS = 5
+EVENING_SPOKEN_TASKS = 3  # the evening recap names fewer; the buttons list the rest
 FALLBACK_SIGN_OFF = "That's the rundown. Go get it."  # only if quotes.json can't be read
 
 
@@ -159,12 +161,103 @@ def _closing(script: _Script, quote: Quote | None) -> str:
     return f'One for the road: "{quote.text}" — {quote.author}'
 
 
+def build_midday(tasks: list[Task]) -> str | None:
+    """The midday check-in: one short line on what's left. None when there's nothing to check on."""
+    if not tasks:
+        return None
+    done = [task for task in tasks if task.done]
+    left = [task for task in tasks if not task.done]
+    if not left:
+        return "Midday check: everything's checked off already. Nice work."
+    if not done:
+        return f"Midday check: nothing checked off yet. Still to do: {_names(left)}."
+    return f"Midday check: {len(done)} done, {len(left)} to go: {_names(left)}."
+
+
+def build_evening(
+    name: str,
+    tasks: list[Task] | None,
+    tomorrow_weather: Weather | None,
+    tomorrow_tasks: list[Task] | None,
+) -> Briefing:
+    """The evening wrap-up: how today went, then a look at tomorrow. Short, about 20-30 seconds.
+    tasks / tomorrow_tasks are None when tasks.json couldn't be read."""
+    script = _Script()
+    script.say(f"Evening, {name}.")
+    written = [f"Evening, {name}.", _recap(script, tasks), _tomorrow(script, tomorrow_weather, tomorrow_tasks)]
+    closing = _evening_closing(tasks)
+    script.say(closing)
+    written.append(closing)
+    return Briefing(script.segments, "\n\n".join(line for line in written if line))
+
+
+def _recap(script: _Script, tasks: list[Task] | None) -> str:
+    if tasks is None:
+        script.say("I couldn't read your task file, so no recap tonight. Check tasks.json for a typo.")
+        return "Today: couldn't read tasks.json. Check it for a typo."
+    if not tasks:
+        script.say("No tasks on the list today.")
+        return "Today: no tasks on the list."
+    done = [task for task in tasks if task.done]
+    left = [task for task in tasks if not task.done]
+    if not left:
+        script.say(f"You got everything done today: {_names(done, EVENING_SPOKEN_TASKS)}. Clean sweep.")
+    elif not done:
+        script.say(f"Nothing checked off today. Still open: {_names(left, EVENING_SPOKEN_TASKS)}.")
+    else:
+        script.say(f"You got {len(done)} of {len(tasks)} done today: {_names(done, EVENING_SPOKEN_TASKS)}. "
+                   f"Still open: {_names(left, EVENING_SPOKEN_TASKS)}.")
+    if left:
+        move = " Anything else can move to tomorrow." if any(not task.daily for task in left) else ""
+        script.say(f"If you finished any of those, tap them off.{move}")
+    checklist = "\n".join(("✅ " if task.done else "⬜ ") + task.text for task in tasks)
+    return f"Today: {len(done)} of {len(tasks)} done\n{checklist}"
+
+
+def _tomorrow(script: _Script, weather: Weather | None, tasks: list[Task] | None) -> str:
+    written = []
+    if weather is None:
+        script.say("I couldn't get tomorrow's forecast.")
+        written.append("Tomorrow: forecast unavailable.")
+    else:
+        script.say(f"Tomorrow: {weather.summary}, high of {weather.high}, low of {weather.low}. {_rain(weather.rain_chance)}")
+        written.append(f"Tomorrow: {weather.summary.capitalize()}, high {weather.high}°, low {weather.low}°. "
+                       f"{weather.rain_chance}% chance of rain.")
+    first = next((task.text for task in tasks or [] if not task.daily), None)
+    if first:
+        script.say(f"First up: {_bare(first)}.")
+        written.append(f"First up: {first}")
+    return "\n".join(written)
+
+
+def _evening_closing(tasks: list[Task] | None) -> str:
+    if not tasks:
+        return "Enjoy your evening."
+    done = sum(task.done for task in tasks)
+    if done == len(tasks):
+        return "Nice work today."
+    if done:
+        return "Good push today. Rest up."
+    return "Tomorrow's a fresh start."
+
+
+def _names(tasks: list[Task], limit: int = MAX_SPOKEN_TASKS) -> str:
+    """Tasks as a spoken list, capped so a long list doesn't drag on."""
+    names = [_bare(task.text) for task in tasks[:limit]]
+    extra = len(tasks) - len(names)
+    if extra:
+        names.append(f"{extra} more")
+    return _join(names)
+
+
 def _bare(task: str) -> str:
     """A task as it reads mid-sentence, without its own end punctuation."""
     return task.rstrip(".!")
 
 
 def _join(items: list[str]) -> str:
+    if len(items) == 1:
+        return items[0]
     if len(items) == 2:
         return f"{items[0]} and {items[1]}"
     return ", ".join(items[:-1]) + f", and {items[-1]}"

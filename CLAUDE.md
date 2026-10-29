@@ -79,7 +79,8 @@ tests/
 - Delivery: one Telegram message per briefing (voice note with the text as its caption; text goes separately only if it's over 1024 characters). If the voice fails, text only.
 - Morning time: 9:00 on weekdays. Weekends are `wake` days, because Ty sleeps in with no alarm: the briefing goes out when he taps the pinned "I'm up" button (any message counts) after 6:00, or at noon if he hasn't. Telegram doesn't tell bots when a user is online, so a tap is the signal. Set in config.yaml (`morning_weekdays`, `morning_weekends`, `wake_earliest`, `wake_latest`); either day type can be a time or `wake`.
 - The bot only listens to `TELEGRAM_CHAT_ID`; messages from anyone else are ignored (the bot's username is public). In v1, Ty's messages are only the wake signal; other replies are v3.
-- Scheduling: a job checks the clock every minute instead of setting one timer, so a laptop that was asleep at the morning time still sends when it wakes, up to 3 hours late. `data/state.json` records the last date sent so restarts never double-send.
+- Scheduling: a job checks the clock every minute instead of setting timers, so a laptop that was asleep at a check-in's time still sends when it wakes, up to 3 hours late. Applies to the morning, midday and evening slots; `data/state.json` keeps `last_morning`, `last_midday` and `last_evening`.
+- Evening "Tomorrow" sets `"from": "YYYY-MM-DD"` on the task (and clears any date): hidden until then, shown every day after until it's done, so a moved task can't silently disappear. Daily tasks can't be moved or dropped from Telegram, so a stray tap can't delete a habit. `data/state.json` records the last date sent so restarts never double-send.
 - `coach/data/tasks.json` format:
   ```json
   {"tasks": [
@@ -116,8 +117,7 @@ Done when Ty gets a voice note every morning without touching anything.
 Order Ty approved: 1. tasks from Telegram, 2. midday + evening check-ins, 3. phrase help + no repeats, 4. sports. Checkpoint after each group.
 Check-in style: midday is text only (with task buttons); the evening is a short voice note + text.
 - [x] Group 1: today's tasks as buttons on the briefing and on `/tasks` (tap to check off, tap again to undo); `/add <task>` and `/add tomorrow <task>`; `/help` and a "/" command menu (built and tested with stand-in messages; waiting on a live try)
-- [ ] Midday check-in: what's left today
-- [ ] Evening wrap-up: recap the day, preview tomorrow
+- [x] Group 2: midday check-in at 12:30 on weekdays (one line on what's left, with task buttons; skipped when there are no tasks) and an evening wrap-up at 6:00 PM every day (short voice note: what got done, what's open, tomorrow's weather and first task; open tasks get Done buttons, and one-offs also get Tomorrow / Drop). Built and dry-run against the real task list; waiting on a live evening
 - [ ] Phrase memory: never repeat a new phrase; spaced review after 1, 3, 7 days
 - [ ] No repeated facts/jokes (history log)
 - [ ] Phrase help from Telegram: `/phrase` resends the spelling plus a slowed-down clip of the phrase

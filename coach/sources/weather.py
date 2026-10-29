@@ -58,8 +58,10 @@ def fetch_weather(
     timezone: str,
     temperature_unit: str = "fahrenheit",
     client: httpx.Client | None = None,
+    days_ahead: int = 0,
 ) -> Weather | None:
-    """Return today's weather, or None if Open-Meteo can't be reached or answers oddly."""
+    """Return today's weather (or tomorrow's, with days_ahead=1), or None if Open-Meteo can't be
+    reached or answers oddly. current_temp is always the temperature right now."""
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -67,8 +69,9 @@ def fetch_weather(
         "temperature_unit": temperature_unit,
         "current": "temperature_2m",
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code",
-        "forecast_days": 1,
+        "forecast_days": days_ahead + 1,
     }
+    day = days_ahead
     try:
         with (client or new_client()) as http:
             response = http.get(FORECAST_URL, params=params)
@@ -77,10 +80,10 @@ def fetch_weather(
         daily = data["daily"]
         return Weather(
             current_temp=round(data["current"]["temperature_2m"]),
-            high=round(daily["temperature_2m_max"][0]),
-            low=round(daily["temperature_2m_min"][0]),
-            rain_chance=round(daily["precipitation_probability_max"][0] or 0),
-            summary=WMO_SUMMARIES.get(daily["weather_code"][0], "mixed conditions"),
+            high=round(daily["temperature_2m_max"][day]),
+            low=round(daily["temperature_2m_min"][day]),
+            rain_chance=round(daily["precipitation_probability_max"][day] or 0),
+            summary=WMO_SUMMARIES.get(daily["weather_code"][day], "mixed conditions"),
         )
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as e:
         log.warning("Weather unavailable: %s", e)

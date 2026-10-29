@@ -13,7 +13,11 @@ WAKE_BUTTON = "I'm up"
 # Stays pinned under the chat, so a wake-day morning is one tap. Telegram keeps showing it
 # once it's been sent, so it rides along on every message that doesn't carry task buttons.
 KEYBOARD = ReplyKeyboardMarkup([[WAKE_BUTTON]], resize_keyboard=True, is_persistent=True)
-TASK_TAP = "t"  # task button data: "t:<YYYY-MM-DD>:<task key>"
+# Button data is "<action>:<YYYY-MM-DD>:<task key>". The action also says which list to redraw.
+TASK_TAP = "t"  # today's list (briefing, midday, /tasks): check off or back on
+EVENING_DONE = "e"  # evening list: check off
+EVENING_MOVE = "m"  # evening list: move to tomorrow
+EVENING_DROP = "x"  # evening list: delete
 
 
 def task_buttons(tasks: list[Task], day: date) -> InlineKeyboardMarkup | None:
@@ -21,10 +25,27 @@ def task_buttons(tasks: list[Task], day: date) -> InlineKeyboardMarkup | None:
     if not tasks:
         return None
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(("✅ " if task.done else "⬜ ") + task.text,
-                              callback_data=f"{TASK_TAP}:{day.isoformat()}:{task_key(task.text)}")]
+        [InlineKeyboardButton(("✅ " if task.done else "⬜ ") + task.text, callback_data=_data(TASK_TAP, day, task))]
         for task in tasks
     ])
+
+
+def evening_buttons(tasks: list[Task], day: date) -> InlineKeyboardMarkup | None:
+    """For tasks still open in the evening: tap one to check it off. One-off tasks also get
+    Tomorrow and Drop underneath. None once nothing is left open."""
+    rows = []
+    for task in tasks:
+        if task.done:
+            continue
+        rows.append([InlineKeyboardButton("⬜ " + task.text, callback_data=_data(EVENING_DONE, day, task))])
+        if not task.daily:
+            rows.append([InlineKeyboardButton("↪ Tomorrow", callback_data=_data(EVENING_MOVE, day, task)),
+                         InlineKeyboardButton("✕ Drop", callback_data=_data(EVENING_DROP, day, task))])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+def _data(action: str, day: date, task: Task) -> str:
+    return f"{action}:{day.isoformat()}:{task_key(task.text)}"
 
 
 async def send_briefing(bot: Bot, chat_id: int | str, text: str, audio_path: Path | None,

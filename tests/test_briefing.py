@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from coach.briefing import build_briefing
+from coach.briefing import build_briefing, build_evening, build_midday
 from coach.sources.content import Fact, HistoryMoment, Joke, Phrase, Quote
 from coach.sources.tasks import Task
 from coach.sources.weather import Weather
@@ -144,3 +144,85 @@ def test_busiest_day_stays_under_75_seconds():
     longest_quote = Quote(" ".join(["word"] * 22) + ".", "Martin Luther King Jr.")  # the cap in test_content
     words = len(spoken(build(tasks=tasks, item=long_history, quote=longest_quote)).split())
     assert words <= 165
+
+
+# --- midday -----------------------------------------------------------------
+
+GYM_DONE = Task("Gym", daily=True, done=True)
+APPS = Task("Send two job applications", daily=True)
+LETTER = Task("Finish cover letter")
+
+
+def test_midday_counts_whats_left():
+    assert build_midday([GYM_DONE, APPS, LETTER]) == (
+        "Midday check: 1 done, 2 to go: Send two job applications and Finish cover letter.")
+
+
+def test_midday_with_nothing_checked_off_yet():
+    assert build_midday([APPS, LETTER]).startswith("Midday check: nothing checked off yet. Still to do:")
+
+
+def test_midday_when_everything_is_done():
+    assert "everything's checked off" in build_midday([GYM_DONE])
+
+
+def test_no_midday_without_tasks():
+    assert build_midday([]) is None
+
+
+# --- evening ----------------------------------------------------------------
+
+TOMORROW = Weather(current_temp=75, high=86, low=70, rain_chance=40, summary="light rain")
+
+
+def evening(tasks=(GYM_DONE, APPS, LETTER), weather=TOMORROW, upcoming=(APPS, Task("Call mom"))):
+    return build_evening("Ty", None if tasks is None else list(tasks), weather,
+                         None if upcoming is None else list(upcoming))
+
+
+def test_evening_recaps_the_day_and_previews_tomorrow():
+    briefing = evening()
+    assert spoken(briefing) == (
+        "Evening, Ty. You got 1 of 3 done today: Gym. "
+        "Still open: Send two job applications and Finish cover letter. "
+        "If you finished any of those, tap them off. Anything else can move to tomorrow. "
+        "Tomorrow: light rain, high of 86, low of 70. Rain chance is 40 percent, so keep an umbrella handy. "
+        "First up: Call mom. Good push today. Rest up."
+    )
+    assert briefing.text == (
+        "Evening, Ty.\n\n"
+        "Today: 1 of 3 done\n✅ Gym\n⬜ Send two job applications\n⬜ Finish cover letter\n\n"
+        "Tomorrow: Light rain, high 86°, low 70°. 40% chance of rain.\nFirst up: Call mom\n\n"
+        "Good push today. Rest up."
+    )
+
+
+def test_evening_clean_sweep():
+    briefing = evening(tasks=[GYM_DONE, Task("Finish cover letter", done=True)])
+    assert "You got everything done today: Gym and Finish cover letter. Clean sweep." in spoken(briefing)
+    assert "tap them off" not in spoken(briefing)
+    assert spoken(briefing).endswith("Nice work today.")
+
+
+def test_evening_honest_when_nothing_got_done():
+    briefing = evening(tasks=[APPS, LETTER])
+    assert "Nothing checked off today. Still open:" in spoken(briefing)
+    assert spoken(briefing).endswith("Tomorrow's a fresh start.")
+
+
+def test_evening_only_daily_tasks_left_doesnt_mention_moving():
+    assert "move to tomorrow" not in spoken(evening(tasks=[GYM_DONE, APPS]))
+
+
+def test_evening_without_tasks_forecast_or_task_file():
+    briefing = evening(tasks=None, weather=None, upcoming=None)
+    assert "couldn't read your task file" in spoken(briefing)
+    assert "couldn't get tomorrow's forecast" in spoken(briefing)
+    assert "First up" not in spoken(briefing)
+    assert spoken(evening(tasks=[])).endswith("Enjoy your evening.")
+
+
+def test_evening_stays_short():
+    # About 35 seconds at most (~130 words a minute), even with a long list of long task names.
+    tasks = [Task(f"Send applications to company number {n}") for n in range(1, 9)]
+    assert len(spoken(evening(tasks=tasks, upcoming=tasks)).split()) <= 80

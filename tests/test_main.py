@@ -8,10 +8,10 @@ from coach.main import (
     CANT_READ_YET,
     RedactingFormatter,
     load_last_sent,
-    morning_due,
     morning_time,
     parse_add,
     save_last_sent,
+    slot_due,
     wake_reply,
 )
 
@@ -32,8 +32,8 @@ def at(hour, minute=0, day=29):
     (at(8, 0), date(2026, 10, 29), False),  # already sent today
     (at(8, 0), date(2026, 10, 28), True),  # sent yesterday
 ])
-def test_morning_due(now, last_sent, due):
-    assert morning_due(now, EIGHT, last_sent) is due
+def test_slot_due(now, last_sent, due):
+    assert slot_due(now, EIGHT, last_sent) is due
 
 
 SCHEDULE = {"morning_weekdays": "09:00", "morning_weekends": "wake", "wake_earliest": "06:00", "wake_latest": "12:00"}
@@ -84,6 +84,15 @@ def test_last_sent_round_trip(tmp_path):
     assert load_last_sent(path) == date(2026, 10, 29)
     save_last_sent(None, path)
     assert load_last_sent(path) is None
+
+
+def test_each_slot_keeps_its_own_date(tmp_path):
+    path = tmp_path / "state.json"
+    save_last_sent(date(2026, 10, 29), path)
+    save_last_sent(date(2026, 10, 28), path, slot="evening")
+    assert load_last_sent(path) == date(2026, 10, 29)
+    assert load_last_sent(path, slot="evening") == date(2026, 10, 28)
+    assert load_last_sent(path, slot="midday") is None
 
 
 def test_corrupt_state_file_is_treated_as_not_sent(tmp_path):

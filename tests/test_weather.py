@@ -53,6 +53,25 @@ def test_unknown_code_and_missing_rain_chance():
     assert weather.rain_chance == 0
 
 
+def test_tomorrow_uses_the_second_day():
+    seen = {}
+    data = {**SAMPLE, "daily": {
+        "time": ["2026-10-28", "2026-10-29"],
+        "temperature_2m_max": [83.0, 86.4],
+        "temperature_2m_min": [67.8, 70.2],
+        "precipitation_probability_max": [2, 40],
+        "weather_code": [3, 61],
+    }}
+
+    def handler(request):
+        seen.update(request.url.params)
+        return httpx.Response(200, json=data)
+
+    assert fetch(handler, days_ahead=1) == Weather(current_temp=77, high=86, low=70, rain_chance=40,
+                                                   summary="light rain")
+    assert seen["forecast_days"] == "2"
+
+
 def test_server_error_returns_none():
     assert fetch(lambda request: httpx.Response(500)) is None
 

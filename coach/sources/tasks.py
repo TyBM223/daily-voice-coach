@@ -6,7 +6,9 @@ Each entry is {"text": ...} plus optionally "repeat": "daily" or "date": "YYYY-M
   - no date            -> shows every day until it's done (or deleted)
   - "date"             -> shows only on that day
 The bot adds "done": "YYYY-MM-DD" when a task is checked off. A daily task counts as
-done only on that date; any other task is hidden from the next day on.
+done only on that date; any other task is hidden from the next day on. Moving a task to
+tomorrow (from the evening check-in) sets "from": "YYYY-MM-DD": hidden until that day,
+then shown every day until it's done.
 
 Every check-off is also recorded in data/log.json ({"YYYY-MM-DD": {"done": [...]}}),
 which keeps the history after finished tasks are cleared out of tasks.json.
@@ -16,7 +18,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -59,17 +61,47 @@ def toggle_done(path: Path, log_path: Path, key: str, today: date) -> Task | Non
     """Check off today's task with this key, or un-check it if it was already done.
     Returns the task as it is now, or None if no task showing today has that key."""
     entries = _read(path)
-    for entry in entries:
-        if task_key(entry["text"]) == key and _shows(entry, today):
-            if _done_on(entry, today):
-                del entry["done"]
-            else:
-                entry["done"] = today.isoformat()
-            _write(path, entries, today)
-            task = _task(entry, today)
-            _log_done(log_path, today, task.text, task.done)
-            return task
-    return None
+    entry = _find(entries, key, today)
+    if entry is None:
+        return None
+    if _done_on(entry, today):
+        del entry["done"]
+    else:
+        entry["done"] = today.isoformat()
+    _write(path, entries, today)
+    task = _task(entry, today)
+    _log_done(log_path, today, task.text, task.done)
+    return task
+
+
+def move_to_tomorrow(path: Path, key: str, today: date) -> Task | None:
+    """Push a one-off task to tomorrow; it then shows every day until it's done.
+    None if no one-off task showing today has that key (daily tasks come back anyway)."""
+    entries = _read(path)
+    entry = _find(entries, key, today)
+    if entry is None or entry.get("repeat") == "daily":
+        return None
+    for field in ("date", "done"):
+        entry.pop(field, None)
+    entry["from"] = (today + timedelta(days=1)).isoformat()
+    _write(path, entries, today)
+    return _task(entry, today)
+
+
+def drop_task(path: Path, key: str, today: date) -> Task | None:
+    """Delete a one-off task. None if no one-off task showing today has that key
+    (daily tasks are only removed by editing tasks.json, so a stray tap can't delete a habit)."""
+    entries = _read(path)
+    entry = _find(entries, key, today)
+    if entry is None or entry.get("repeat") == "daily":
+        return None
+    entries.remove(entry)
+    _write(path, entries, today)
+    return _task(entry, today)
+
+
+def _find(entries: list[dict], key: str, today: date) -> dict | None:
+    return next((entry for entry in entries if task_key(entry["text"]) == key and _shows(entry, today)), None)
 
 
 def _read(path: Path) -> list[dict]:
@@ -91,7 +123,7 @@ def _check(entry: dict) -> None:
     repeat = entry.get("repeat")
     if repeat is not None and repeat != "daily":
         raise ValueError(f'unknown repeat "{repeat}" (only "daily" is supported)')
-    for field in ("date", "done"):
+    for field in ("date", "done", "from"):
         if field in entry:
             date.fromisoformat(entry[field])
 
@@ -101,6 +133,8 @@ def _shows(entry: dict, today: date) -> bool:
         return True
     if _finished_before(entry, today):
         return False
+    if "from" in entry and date.fromisoformat(entry["from"]) > today:
+        return False  # moved to a later day
     if "date" in entry:
         return date.fromisoformat(entry["date"]) == today
     return True

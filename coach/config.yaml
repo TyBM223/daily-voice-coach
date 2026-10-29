@@ -22,8 +22,8 @@ schedule:
   morning_weekends: wake
   wake_earliest: "06:00"      # on wake days, messages before this don't count
   wake_latest: "12:00"        # on wake days, sent anyway at this time if you haven't tapped
-  midday: "12:30"    # v2
-  evening: "18:00"   # v2
+  midday: "12:30"    # weekdays only: what's left today (skipped if there are no tasks)
+  evening: "18:00"   # every day: how today went, and tomorrow's first task and weather
 
 # What the daily content slot holds on each weekday.
 # phrase_review repeats that week's Monday phrase; mix rotates fact / history / joke.
