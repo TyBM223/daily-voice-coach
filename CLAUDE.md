@@ -106,16 +106,26 @@ Done when Ty gets a voice note every morning without touching anything.
 - [ ] Phrase memory: never repeat a new phrase; spaced review after 1, 3, 7 days
 - [ ] No repeated facts/jokes (history log)
 - [ ] Add tasks from Telegram: `/add <task>`
+- [ ] Phrase help from Telegram: `/phrase` resends the spelling plus a slowed-down clip of the phrase
+- [ ] Optional (ask first): top news headlines from free RSS feeds (no key), in the briefing or on `/news`
 - [ ] Optional (ask first): sync with a free task app (Google Tasks API)
 - [ ] Optional (ask first): Ollama-generated briefing script
 
 ### v3: Talk back (checkpoint before starting)
 - [ ] Telegram commands + natural replies ("done gym", "push resume to tomorrow")
 - [ ] Voice replies transcribed locally with faster-whisper
+- [ ] Questions about the day's content, by text or voice ("how do you spell that?", "say it slower", "tell me more about that history fact"). Answers come from local Ollama, grounded in the Wikipedia article so it doesn't make things up
 - [ ] Streaks per recurring goal (gym, applications, project hours, social plans)
 - [ ] Evening check-in asks about unfinished tasks and records the answer
 - [ ] Weekly Sunday report: completion rate, streaks, wins
 - [ ] Tone: honest. If things slipped, say so plainly and help re-plan; no guilt-trips, no sugarcoating
+
+### v4: Conversation (checkpoint before starting)
+- [ ] Morning opens with a question ("Morning, Ty. How'd you sleep?"). Ty's reply (voice or text) gets a short, genuine response, then the briefing. If there's no reply within a set time, the briefing goes out anyway, so the morning never depends on answering
+- [ ] Open back-and-forth by voice note: ask about the news so far today, the history fact, the task list, anything. Spoken answers from local Ollama + faster-whisper + edge-tts, all free
+- [ ] News questions answered from free RSS headlines, not from the model's memory
+- [ ] Remembers what Ty said earlier in the day (stored in `data/`) so replies stay in context
+- Limits: Telegram bots can't take live calls, so this is voice-note back-and-forth, and each reply takes several seconds to tens of seconds on a laptop. A live, talk-over-each-other conversation would need a different setup (a local app); explore only if Ty wants it later. Paid real-time voice APIs are out (Rule 1).
 
 ### Deployment (checkpoint required)
 Start by running locally. Always-on options to discuss later: keep the home PC running, an old laptop/phone as a mini server, or a free cloud tier. Many "free" cloud tiers need a credit card: flag that, and don't sign up for anything without Ty's OK.
@@ -123,4 +133,4 @@ Start by running locally. Always-on options to discuss later: keep the home PC r
 ## Known free-tier risks
 - edge-tts uses Microsoft's public endpoint and could break. Fallback: Piper.
 - JokeAPI / Wikipedia could rate-limit or go down. Always fall back to local JSON.
-- Ollama needs decent RAM/CPU. Check the machine before relying on it.
+- Ollama needs decent RAM/CPU. Ty's laptop (checked 2026-10-28): Ryzen 9 6900HS, 16 GB RAM, AMD RX 6700S with 8 GB, Ollama 0.40.8 installed. Before v3, check whether Ollama actually uses the AMD GPU; on CPU alone, expect slower replies and stick to small models.
