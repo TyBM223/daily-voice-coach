@@ -71,9 +71,9 @@ tests/
 
 ## Decisions made
 - Project lives in `Documents\coach` on Windows, not WSL (WSL shuts down when idle).
-- Language to learn: Spanish (placeholder; Ty may change it).
+- Language to learn: Portuguese, Brazilian (Ty switched from Spanish on 2026-10-29; Brazilian chosen by default as the most widely spoken variant). The Spanish deck stays in the repo for anyone else.
 - Voice notes are sent as MP3, no ffmpeg.
-- The language phrase is spoken by a native voice (`phrase_voice` in config.yaml, es-MX-JorgeNeural for Spanish). The briefing is synthesized as separate clips and the MP3 bytes are joined; edge-tts output has no headers, so this is safe.
+- The language phrase is spoken by a native voice (`phrase_voice` in config.yaml: pt-BR-AntonioNeural for Portuguese, es-MX-JorgeNeural for Spanish). The briefing is synthesized as separate clips and the MP3 bytes are joined; edge-tts output has no headers, so this is safe.
 - httpx request logging is kept at WARNING because Telegram URLs contain the bot token. Every log line also goes through `RedactingFormatter`, because python-telegram-bot puts the token in some error messages. Logs go to the console and `data/coach.log`.
 - Main voice: en-GB-RyanNeural (British, Ty's pick).
 - Delivery: one Telegram message per briefing (voice note with the text as its caption; text goes separately only if it's over 1024 characters). If the voice fails, text only.

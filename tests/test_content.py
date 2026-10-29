@@ -290,8 +290,9 @@ def test_text_decks_are_clean(name):
     assert len(set(deck)) == len(deck), "duplicate entries"
 
 
-def test_phrase_deck_is_clean():
-    deck = content._load_deck("phrases_spanish")
+@pytest.mark.parametrize("language", ["spanish", "portuguese"])
+def test_phrase_deck_is_clean(language):
+    deck = content._load_deck(f"phrases_{language}")
     assert len(deck) >= 52, "at least a year of Mondays"
     assert all(entry["phrase"].strip() and entry["meaning"].strip() for entry in deck)
     assert len({entry["phrase"] for entry in deck}) == len(deck), "duplicate phrases"

@@ -10,10 +10,10 @@ location:
 
 temperature_unit: fahrenheit   # or celsius
 
-language_to_learn: Spanish
+language_to_learn: Portuguese   # needs content_data/phrases_<language>.json (Spanish and Portuguese included)
 
 voice: en-GB-RyanNeural         # any edge-tts voice name
-phrase_voice: es-MX-JorgeNeural # speaks the phrase; match it to language_to_learn
+phrase_voice: pt-BR-AntonioNeural # speaks the phrase; match it to language_to_learn (Spanish: es-MX-JorgeNeural)
 
 schedule:
   # A time like "09:00", or wake: the briefing comes when you tap "I'm up"
