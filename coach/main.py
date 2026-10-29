@@ -17,15 +17,15 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from dotenv import load_dotenv
-from telegram import Bot, Update
+from telegram import Bot, BotCommand, BotCommandScopeChat, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
-from telegram.error import NetworkError
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.error import BadRequest, NetworkError, TelegramError
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from coach.briefing import Briefing, build_briefing
-from coach.delivery.telegram import KEYBOARD, recent_chats, send_briefing
+from coach.delivery.telegram import KEYBOARD, TASK_TAP, WAKE_BUTTON, recent_chats, send_briefing, task_buttons
 from coach.sources.content import pick_content, pick_quote
-from coach.sources.tasks import TasksFileError, load_tasks
+from coach.sources.tasks import TasksFileError, add_task, load_tasks, toggle_done
 from coach.sources.weather import fetch_weather
 from coach.voice.tts import EdgeTTS, render
 
@@ -37,12 +37,23 @@ DATA_DIR = PACKAGE_DIR / "data"
 AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
 STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
+TASKS_PATH = DATA_DIR / "tasks.json"
+DAY_LOG_PATH = DATA_DIR / "log.json"  # what got done each day
 
 MORNING_GRACE = timedelta(hours=3)  # laptop asleep at 9:00? Still send if it wakes before noon
 WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
 CHECK_EVERY_SECONDS = 60
 SEND_ATTEMPTS = 3
 RETRY_SECONDS = 20
+
+HELP = (
+    "Here's what I can do:\n"
+    "/tasks: today's list. Tap a task to check it off, tap again to undo.\n"
+    "/add Finish resume: add a task. It stays on your list until it's done.\n"
+    "/add tomorrow Call mom: add a task for tomorrow only.\n"
+    f'On weekends, tap "{WAKE_BUTTON}" when you\'re awake and I\'ll send your briefing.'
+)
+CANT_READ_YET = "I can't read regular messages yet. For now: /tasks for today's list, /add to add a task, /help for the rest."
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
@@ -58,7 +69,7 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
         fetch_weather, location["lat"], location["lon"], config["timezone"], config["temperature_unit"]
     )
     try:
-        tasks = load_tasks(DATA_DIR / "tasks.json", today)
+        tasks = [task for task in load_tasks(TASKS_PATH, today) if not task.done]  # already checked off: skip
     except TasksFileError as e:
         log.warning("%s", e)
         tasks = None
@@ -78,9 +89,10 @@ async def prepare_morning(config: dict, now: datetime) -> tuple[Briefing, Path |
 async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> None:
     """Build today's briefing and send it, retrying if the network is briefly down."""
     briefing, audio_path = await prepare_morning(config, now)
+    buttons = today_buttons(now.date())
     for attempt in range(1, SEND_ATTEMPTS + 1):
         try:
-            await send_briefing(bot, chat_id, briefing.text, audio_path)
+            await send_briefing(bot, chat_id, briefing.text, audio_path, buttons)
             log.info("Morning briefing sent")
             return
         except NetworkError as e:
@@ -101,10 +113,10 @@ def morning_time(schedule: dict, day: date) -> time:
     return time.fromisoformat(schedule["wake_latest"] if setting == WAKE else setting)
 
 
-def wake_reply(sent_at: datetime, schedule: dict, last_sent: date | None) -> str | None:
+def wake_reply(sent_at: datetime, schedule: dict, last_sent: date | None, text: str | None) -> str | None:
     """Ty messaged the bot at sent_at. None means send today's briefing now; otherwise, a short reply."""
     if last_sent == sent_at.date():
-        return "Today's briefing already went out. It's just above."
+        return "Today's briefing already went out. It's just above." if text == WAKE_BUTTON else CANT_READ_YET
     setting = _morning_setting(schedule, sent_at.date())
     if setting == WAKE:
         earliest = time.fromisoformat(schedule["wake_earliest"])
@@ -119,6 +131,23 @@ def wake_reply(sent_at: datetime, schedule: dict, last_sent: date | None) -> str
 
 def _clock(t: time) -> str:
     return t.strftime("%I:%M %p").lstrip("0")
+
+
+def parse_add(args: str, today: date) -> tuple[str, date | None]:
+    """'/add tomorrow Call mom' is for tomorrow only; anything else stays on the list until it's done."""
+    first, _, rest = args.strip().partition(" ")
+    if first.lower() == "tomorrow":
+        return rest.strip(), today + timedelta(days=1)
+    return args.strip(), None
+
+
+def today_buttons(day: date) -> InlineKeyboardMarkup | None:
+    """The day's task buttons, or None if there are no tasks or tasks.json can't be read."""
+    try:
+        return task_buttons(load_tasks(TASKS_PATH, day), day)
+    except TasksFileError as e:
+        log.warning("%s", e)
+        return None
 
 
 def morning_due(now: datetime, morning: time, last_sent: date | None, grace: timedelta = MORNING_GRACE) -> bool:
@@ -170,7 +199,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     sent_at = message.date.astimezone(tz)
     if sent_at.date() != datetime.now(tz).date():
         return  # sent before midnight and only picked up now because the laptop was asleep
-    reply = wake_reply(sent_at, config["schedule"], load_last_sent())
+    reply = wake_reply(sent_at, config["schedule"], load_last_sent(), message.text)
     if reply:
         await message.reply_text(reply, reply_markup=KEYBOARD)
         return
@@ -180,12 +209,102 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                                  reply_markup=KEYBOARD)
 
 
+def _today(context: ContextTypes.DEFAULT_TYPE) -> date:
+    return datetime.now(ZoneInfo(context.bot_data["config"]["timezone"])).date()
+
+
+async def on_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/tasks: today's list as buttons."""
+    today = _today(context)
+    try:
+        buttons = task_buttons(load_tasks(TASKS_PATH, today), today)
+    except TasksFileError as e:
+        await update.effective_message.reply_text(f"{e}. Check it for a typo.", reply_markup=KEYBOARD)
+        return
+    if buttons is None:
+        await update.effective_message.reply_text("Nothing on your list today. Add one with /add.",
+                                                  reply_markup=KEYBOARD)
+    else:
+        await update.effective_message.reply_text("Today's list. Tap a task when it's done:", reply_markup=buttons)
+
+
+async def on_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/add <task>, or /add tomorrow <task>."""
+    today = _today(context)
+    text, day = parse_add(update.effective_message.text.partition(" ")[2], today)
+    if not text:
+        reply = "Add what? For example: /add Finish resume, or /add tomorrow Call mom."
+    else:
+        try:
+            if add_task(TASKS_PATH, text, today, day):
+                reply = f"Added for tomorrow: {text}" if day else f"Added: {text}"
+            else:
+                reply = f"That's already on your list: {text}"
+        except TasksFileError as e:
+            reply = f"{e}, so I didn't add it. Check it for a typo."
+    await update.effective_message.reply_text(reply, reply_markup=KEYBOARD)
+
+
+async def on_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text(HELP, reply_markup=KEYBOARD)
+
+
+async def on_unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.effective_message.reply_text("I don't know that one. Try /help.", reply_markup=KEYBOARD)
+
+
+async def on_task_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A tap on a task button: check it off (or back on), then refresh the buttons in place."""
+    query = update.callback_query
+    if update.effective_chat.id != int(context.bot_data["chat_id"]):
+        return
+    today = _today(context)
+    _, day, key = query.data.split(":")
+    if day != today.isoformat():
+        await query.answer("That list is from an earlier day. Send /tasks for today's.")
+        return
+    try:
+        task = toggle_done(TASKS_PATH, DAY_LOG_PATH, key, today)
+    except TasksFileError as e:
+        await query.answer(f"{e}. Check it for a typo.", show_alert=True)
+        return
+    if task is None:
+        await query.answer("That task changed or was removed. Here's the current list.")
+    else:
+        await query.answer(f"Done: {task.text}" if task.done else f"Back on the list: {task.text}")
+    try:
+        await query.edit_message_reply_markup(today_buttons(today))
+    except BadRequest as e:
+        if "not modified" not in str(e).lower():
+            raise
+
+
+async def _set_commands(app: Application) -> None:
+    """The menu Telegram shows when Ty types "/" (only in his chat)."""
+    try:
+        await app.bot.set_my_commands(
+            [BotCommand("tasks", "Today's list; tap a task to check it off"),
+             BotCommand("add", "Add a task (/add tomorrow ... for tomorrow only)"),
+             BotCommand("help", "What I can do")],
+            scope=BotCommandScopeChat(int(app.bot_data["chat_id"])),
+        )
+    except TelegramError as e:
+        log.warning("Couldn't set the command menu: %s", e)
+
+
 def run_scheduler(config: dict, token: str, chat_id: str) -> None:
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(_set_commands).build()
     app.bot_data.update(config=config, chat_id=chat_id)
     app.job_queue.run_repeating(check_morning, interval=CHECK_EVERY_SECONDS, first=1)
     # Only Ty's chat counts: the bot's username is public, so messages from anyone else are ignored.
-    app.add_handler(MessageHandler(filters.Chat(chat_id=int(chat_id)) & filters.UpdateType.MESSAGE, on_message))
+    # Edited messages are skipped too. Handlers are tried in order; the first match wins.
+    ty = filters.Chat(chat_id=int(chat_id)) & filters.UpdateType.MESSAGE
+    app.add_handler(CommandHandler("tasks", on_tasks, filters=ty))
+    app.add_handler(CommandHandler("add", on_add, filters=ty))
+    app.add_handler(CommandHandler(["help", "start"], on_help, filters=ty))
+    app.add_handler(MessageHandler(ty & filters.COMMAND, on_unknown_command))
+    app.add_handler(MessageHandler(ty, on_message))
+    app.add_handler(CallbackQueryHandler(on_task_tap, pattern=f"^{TASK_TAP}:"))
     schedule = config["schedule"]
     log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends.",
              config["timezone"], schedule["morning_weekdays"], schedule["morning_weekends"])

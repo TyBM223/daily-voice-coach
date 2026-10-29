@@ -1,7 +1,11 @@
 import asyncio
+from datetime import date
 from types import SimpleNamespace
 
-from coach.delivery.telegram import KEYBOARD, NO_VOICE_NOTE, WAKE_BUTTON, recent_chats, send_briefing
+from coach.delivery.telegram import KEYBOARD, NO_VOICE_NOTE, WAKE_BUTTON, recent_chats, send_briefing, task_buttons
+from coach.sources.tasks import Task, task_key
+
+DAY = date(2026, 10, 30)
 
 
 class FakeBot:
@@ -47,13 +51,35 @@ def test_no_audio_sends_text_with_a_note():
     assert bot.sent == [("message", 42, f"{NO_VOICE_NOTE}\n\nMorning, Ty.")]
 
 
-def test_every_message_carries_the_wake_button(tmp_path):
+def test_without_task_buttons_every_message_carries_the_wake_button(tmp_path):
     for audio in (mp3(tmp_path), None):
         for text in ("Morning, Ty.", "x" * 1500):
             bot = FakeBot()
             asyncio.run(send_briefing(bot, 42, text, audio))
             assert bot.keyboards and all(keyboard is KEYBOARD for keyboard in bot.keyboards)
     assert KEYBOARD.keyboard[0][0].text == WAKE_BUTTON
+
+
+def test_task_buttons_go_on_the_message_with_the_text(tmp_path):
+    buttons = task_buttons([Task("Gym")], DAY)
+    bot = FakeBot()
+    asyncio.run(send_briefing(bot, 42, "Morning, Ty.", mp3(tmp_path), buttons))
+    assert bot.keyboards == [buttons]
+    bot = FakeBot()
+    asyncio.run(send_briefing(bot, 42, "x" * 1500, mp3(tmp_path), buttons))
+    assert bot.keyboards == [KEYBOARD, buttons]  # voice note, then the text
+
+
+def test_task_buttons_show_whats_done():
+    buttons = task_buttons([Task("Gym", daily=True, done=True), Task("Finish cover letter")], DAY)
+    rows = [row[0] for row in buttons.inline_keyboard]
+    assert [button.text for button in rows] == ["✅ Gym", "⬜ Finish cover letter"]
+    assert rows[1].callback_data == f"t:2026-10-30:{task_key('Finish cover letter')}"
+    assert all(len(button.callback_data.encode()) <= 64 for button in rows)  # Telegram's limit
+
+
+def test_no_tasks_no_buttons():
+    assert task_buttons([], DAY) is None
 
 
 def test_recent_chats_lists_who_messaged_the_bot():

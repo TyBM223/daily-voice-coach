@@ -5,10 +5,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from coach.main import (
+    CANT_READ_YET,
     RedactingFormatter,
     load_last_sent,
     morning_due,
     morning_time,
+    parse_add,
     save_last_sent,
     wake_reply,
 )
@@ -47,18 +49,32 @@ def test_weekdays_and_weekends_have_their_own_time(day, expected):
     assert morning_time(SCHEDULE, day) == expected
 
 
-@pytest.mark.parametrize("sent_at, last_sent, expected", [
-    (at(10, 14, day=31), None, None),  # Saturday, up at 10:14: send it now
-    (at(6, 0, day=31), None, None),
-    (at(2, 30, day=31), None, "after 6:00 AM"),  # still Friday night, really
-    (at(10, 14, day=31), date(2026, 10, 31), "already went out"),
-    (at(7, 0, day=30), None, "comes at 9:00 AM"),  # Friday: weekdays keep their set time
-    (at(10, 30, day=30), None, None),  # Friday, past 9:00 and nothing sent (laptop was asleep)
-    (at(10, 30, day=30), date(2026, 10, 30), "already went out"),
+@pytest.mark.parametrize("sent_at, last_sent, text, expected", [
+    (at(10, 14, day=31), None, "I'm up", None),  # Saturday, up at 10:14: send it now
+    (at(10, 14, day=31), None, "morning", None),  # any message counts
+    (at(6, 0, day=31), None, "I'm up", None),
+    (at(2, 30, day=31), None, "I'm up", "after 6:00 AM"),  # still Friday night, really
+    (at(10, 14, day=31), date(2026, 10, 31), "I'm up", "already went out"),
+    (at(10, 14, day=31), date(2026, 10, 31), "done gym", CANT_READ_YET),  # not the button: say what works
+    (at(7, 0, day=30), None, "I'm up", "comes at 9:00 AM"),  # Friday: weekdays keep their set time
+    (at(10, 30, day=30), None, "I'm up", None),  # Friday, past 9:00 and nothing sent (laptop was asleep)
+    (at(10, 30, day=30), date(2026, 10, 30), "I'm up", "already went out"),
 ])
-def test_wake_reply(sent_at, last_sent, expected):
-    reply = wake_reply(sent_at, SCHEDULE, last_sent)
+def test_wake_reply(sent_at, last_sent, text, expected):
+    reply = wake_reply(sent_at, SCHEDULE, last_sent, text)
     assert reply == expected if expected is None else expected in reply
+
+
+@pytest.mark.parametrize("args, expected", [
+    ("Finish resume", ("Finish resume", None)),
+    ("  Finish resume  ", ("Finish resume", None)),
+    ("tomorrow Call mom", ("Call mom", date(2026, 10, 30))),
+    ("Tomorrow  Call mom", ("Call mom", date(2026, 10, 30))),
+    ("tomorrow", ("", date(2026, 10, 30))),
+    ("", ("", None)),
+])
+def test_parse_add(args, expected):
+    assert parse_add(args, date(2026, 10, 29)) == expected
 
 
 def test_last_sent_round_trip(tmp_path):
