@@ -4,7 +4,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from coach.main import RedactingFormatter, load_last_sent, morning_due, morning_time, save_last_sent
+from coach.main import (
+    RedactingFormatter,
+    load_last_sent,
+    morning_due,
+    morning_time,
+    save_last_sent,
+    wake_reply,
+)
 
 TZ = ZoneInfo("America/New_York")
 EIGHT = time(8, 0)
@@ -27,15 +34,31 @@ def test_morning_due(now, last_sent, due):
     assert morning_due(now, EIGHT, last_sent) is due
 
 
+SCHEDULE = {"morning_weekdays": "09:00", "morning_weekends": "wake", "wake_earliest": "06:00", "wake_latest": "12:00"}
+
+
 @pytest.mark.parametrize("day, expected", [
-    (date(2026, 10, 30), time(9, 0)),  # Friday
-    (date(2026, 10, 31), time(8, 0)),  # Saturday
-    (date(2026, 11, 1), time(8, 0)),  # Sunday
+    (date(2026, 10, 30), time(9, 0)),  # Friday: the set time
+    (date(2026, 10, 31), time(12, 0)),  # Saturday: wake day, so noon is the no-tap fallback
+    (date(2026, 11, 1), time(12, 0)),  # Sunday
     (date(2026, 11, 2), time(9, 0)),  # Monday
 ])
 def test_weekdays_and_weekends_have_their_own_time(day, expected):
-    schedule = {"morning_weekdays": "09:00", "morning_weekends": "08:00"}
-    assert morning_time(schedule, day) == expected
+    assert morning_time(SCHEDULE, day) == expected
+
+
+@pytest.mark.parametrize("sent_at, last_sent, expected", [
+    (at(10, 14, day=31), None, None),  # Saturday, up at 10:14: send it now
+    (at(6, 0, day=31), None, None),
+    (at(2, 30, day=31), None, "after 6:00 AM"),  # still Friday night, really
+    (at(10, 14, day=31), date(2026, 10, 31), "already went out"),
+    (at(7, 0, day=30), None, "comes at 9:00 AM"),  # Friday: weekdays keep their set time
+    (at(10, 30, day=30), None, None),  # Friday, past 9:00 and nothing sent (laptop was asleep)
+    (at(10, 30, day=30), date(2026, 10, 30), "already went out"),
+])
+def test_wake_reply(sent_at, last_sent, expected):
+    reply = wake_reply(sent_at, SCHEDULE, last_sent)
+    assert reply == expected if expected is None else expected in reply
 
 
 def test_last_sent_round_trip(tmp_path):

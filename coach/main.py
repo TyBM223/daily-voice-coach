@@ -17,12 +17,13 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from dotenv import load_dotenv
-from telegram import Bot
+from telegram import Bot, Update
+from telegram.constants import ChatAction
 from telegram.error import NetworkError
-from telegram.ext import Application, ContextTypes
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from coach.briefing import Briefing, build_briefing
-from coach.delivery.telegram import recent_chats, send_briefing
+from coach.delivery.telegram import KEYBOARD, recent_chats, send_briefing
 from coach.sources.content import pick_content, pick_quote
 from coach.sources.tasks import TasksFileError, load_tasks
 from coach.sources.weather import fetch_weather
@@ -38,6 +39,7 @@ STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 
 MORNING_GRACE = timedelta(hours=3)  # laptop asleep at 9:00? Still send if it wakes before noon
+WAKE = "wake"  # morning setting in config.yaml: send when Ty says he's up
 CHECK_EVERY_SECONDS = 60
 SEND_ATTEMPTS = 3
 RETRY_SECONDS = 20
@@ -88,9 +90,35 @@ async def run_morning(config: dict, bot: Bot, chat_id: str, now: datetime) -> No
             await asyncio.sleep(RETRY_SECONDS)
 
 
+def _morning_setting(schedule: dict, day: date) -> str:
+    """config.yaml has one morning setting for weekdays and one for weekends: a time, or WAKE."""
+    return schedule["morning_weekends" if day.weekday() >= 5 else "morning_weekdays"]
+
+
 def morning_time(schedule: dict, day: date) -> time:
-    """The briefing time for this day: config.yaml has one for weekdays and one for weekends."""
-    return time.fromisoformat(schedule["morning_weekends" if day.weekday() >= 5 else "morning_weekdays"])
+    """When the briefing goes out without a tap: the set time, or on wake days the fallback."""
+    setting = _morning_setting(schedule, day)
+    return time.fromisoformat(schedule["wake_latest"] if setting == WAKE else setting)
+
+
+def wake_reply(sent_at: datetime, schedule: dict, last_sent: date | None) -> str | None:
+    """Ty messaged the bot at sent_at. None means send today's briefing now; otherwise, a short reply."""
+    if last_sent == sent_at.date():
+        return "Today's briefing already went out. It's just above."
+    setting = _morning_setting(schedule, sent_at.date())
+    if setting == WAKE:
+        earliest = time.fromisoformat(schedule["wake_earliest"])
+        if sent_at.time() < earliest:
+            return f"Too early for the briefing. Tap again after {_clock(earliest)}."
+        return None
+    start = time.fromisoformat(setting)
+    if sent_at.time() < start:
+        return f"Your briefing comes at {_clock(start)} today."
+    return None  # past the set time and nothing sent yet (the laptop was probably asleep)
+
+
+def _clock(t: time) -> str:
+    return t.strftime("%I:%M %p").lstrip("0")
 
 
 def morning_due(now: datetime, morning: time, last_sent: date | None, grace: timedelta = MORNING_GRACE) -> bool:
@@ -111,28 +139,56 @@ def save_last_sent(day: date | None, path: Path = STATE_PATH) -> None:
     path.write_text(json.dumps({"last_morning": day.isoformat() if day else None}), encoding="utf-8")
 
 
+async def send_morning_once(config: dict, bot: Bot, chat_id: str, now: datetime) -> bool:
+    """Send today's briefing. Today is claimed first, so the clock check and a tap can't both
+    send it; if sending fails, the claim is undone so the next check or tap tries again."""
+    last_sent = load_last_sent()
+    save_last_sent(now.date())
+    try:
+        await run_morning(config, bot, chat_id, now)
+        return True
+    except Exception:
+        log.exception("Morning briefing failed")
+        save_last_sent(last_sent)
+        return False
+
+
 async def check_morning(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Runs every minute. Watching the clock, instead of one timer, means the briefing
     still goes out if the laptop was asleep or the coach restarted at the morning time."""
-    config, chat_id = context.job.data
+    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
     now = datetime.now(ZoneInfo(config["timezone"]))
-    last_sent = load_last_sent()
-    if not morning_due(now, morning_time(config["schedule"], now.date()), last_sent):
+    if morning_due(now, morning_time(config["schedule"], now.date()), load_last_sent()):
+        await send_morning_once(config, context.bot, chat_id, now)
+
+
+async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A message from Ty. On wake days, the first one after wake_earliest sends the briefing."""
+    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
+    tz = ZoneInfo(config["timezone"])
+    message = update.effective_message
+    sent_at = message.date.astimezone(tz)
+    if sent_at.date() != datetime.now(tz).date():
+        return  # sent before midnight and only picked up now because the laptop was asleep
+    reply = wake_reply(sent_at, config["schedule"], load_last_sent())
+    if reply:
+        await message.reply_text(reply, reply_markup=KEYBOARD)
         return
-    save_last_sent(now.date())  # claim today first, so a slow send can't overlap the next check
-    try:
-        await run_morning(config, context.bot, chat_id, now)
-    except Exception:
-        log.exception("Morning briefing failed; trying again in a minute")
-        save_last_sent(last_sent)
+    await context.bot.send_chat_action(chat_id, ChatAction.RECORD_VOICE)
+    if not await send_morning_once(config, context.bot, chat_id, datetime.now(tz)):
+        await message.reply_text("Something went wrong building your briefing. Tap again in a minute.",
+                                 reply_markup=KEYBOARD)
 
 
 def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app = Application.builder().token(token).build()
-    app.job_queue.run_repeating(check_morning, interval=CHECK_EVERY_SECONDS, first=1, data=(config, chat_id))
+    app.bot_data.update(config=config, chat_id=chat_id)
+    app.job_queue.run_repeating(check_morning, interval=CHECK_EVERY_SECONDS, first=1)
+    # Only Ty's chat counts: the bot's username is public, so messages from anyone else are ignored.
+    app.add_handler(MessageHandler(filters.Chat(chat_id=int(chat_id)) & filters.UpdateType.MESSAGE, on_message))
     schedule = config["schedule"]
-    log.info("Coach running. Morning briefing at %s on weekdays and %s on weekends (%s).",
-             schedule["morning_weekdays"], schedule["morning_weekends"], config["timezone"])
+    log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends.",
+             config["timezone"], schedule["morning_weekdays"], schedule["morning_weekends"])
     app.run_polling()
 
 

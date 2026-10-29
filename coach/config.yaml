@@ -16,8 +16,12 @@ voice: en-GB-RyanNeural         # any edge-tts voice name
 phrase_voice: es-MX-JorgeNeural # speaks the phrase; match it to language_to_learn
 
 schedule:
+  # A time like "09:00", or wake: the briefing comes when you tap "I'm up"
+  # (or send any message) in Telegram.
   morning_weekdays: "09:00"   # Monday to Friday
-  morning_weekends: "08:00"
+  morning_weekends: wake
+  wake_earliest: "06:00"      # on wake days, messages before this don't count
+  wake_latest: "12:00"        # on wake days, sent anyway at this time if you haven't tapped
   midday: "12:30"    # v2
   evening: "18:00"   # v2
 

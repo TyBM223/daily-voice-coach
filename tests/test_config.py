@@ -1,3 +1,4 @@
+from datetime import time
 from zoneinfo import ZoneInfo
 
 from coach.main import load_config
@@ -15,9 +16,12 @@ def test_config_loads_with_required_settings():
     assert config["temperature_unit"] in {"fahrenheit", "celsius"}
     assert config["voice"] and config["phrase_voice"]
 
-    for slot in ("morning_weekdays", "morning_weekends", "midday", "evening"):
-        hour, minute = map(int, config["schedule"][slot].split(":"))
-        assert 0 <= hour < 24 and 0 <= minute < 60
+    schedule = config["schedule"]
+    for slot in ("morning_weekdays", "morning_weekends"):
+        assert schedule[slot] == "wake" or time.fromisoformat(schedule[slot])
+    assert time.fromisoformat(schedule["wake_earliest"]) < time.fromisoformat(schedule["wake_latest"])
+    for slot in ("midday", "evening"):
+        time.fromisoformat(schedule[slot])  # raises if it isn't a valid HH:MM time
 
     assert set(config["content_rotation"]) == WEEKDAYS
     assert set(config["content_rotation"].values()) <= CONTENT_TYPES

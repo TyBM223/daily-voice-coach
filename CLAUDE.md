@@ -77,7 +77,8 @@ tests/
 - httpx request logging is kept at WARNING because Telegram URLs contain the bot token. Every log line also goes through `RedactingFormatter`, because python-telegram-bot puts the token in some error messages. Logs go to the console and `data/coach.log`.
 - Main voice: en-GB-RyanNeural (British, Ty's pick).
 - Delivery: one Telegram message per briefing (voice note with the text as its caption; text goes separately only if it's over 1024 characters). If the voice fails, text only.
-- Morning time: 9:00 on weekdays, 8:00 on weekends (`morning_weekdays` / `morning_weekends` in config.yaml; Ty asked for 9:00 on weekdays on 2026-10-29).
+- Morning time: 9:00 on weekdays. Weekends are `wake` days, because Ty sleeps in with no alarm: the briefing goes out when he taps the pinned "I'm up" button (any message counts) after 6:00, or at noon if he hasn't. Telegram doesn't tell bots when a user is online, so a tap is the signal. Set in config.yaml (`morning_weekdays`, `morning_weekends`, `wake_earliest`, `wake_latest`); either day type can be a time or `wake`.
+- The bot only listens to `TELEGRAM_CHAT_ID`; messages from anyone else are ignored (the bot's username is public). In v1, Ty's messages are only the wake signal; other replies are v3.
 - Scheduling: a job checks the clock every minute instead of setting one timer, so a laptop that was asleep at the morning time still sends when it wakes, up to 3 hours late. `data/state.json` records the last date sent so restarts never double-send.
 - `coach/data/tasks.json` format:
   ```json
@@ -101,6 +102,7 @@ tests/
 - [x] Convert to audio with edge-tts (phrase in a native voice, clips joined)
 - [x] "Top priority" line (first one-off task) and a slowed-down second repeat of the phrase
 - [x] Briefing ends on a new quote each day (`content_data/quotes.json`) instead of a fixed sign-off
+- [x] Weekend briefing waits for Ty's "I'm up" tap, with a noon fallback (built and unit-tested; waiting on a live weekend)
 - [x] Send voice note + text version to Telegram (first live send 2026-10-29)
 - [x] `--now` runs it once immediately (`--chat-id` finds the chat ID)
 - [ ] Scheduled run at the morning time (built; waiting on a live morning)

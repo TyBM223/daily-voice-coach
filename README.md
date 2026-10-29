@@ -26,6 +26,8 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 6. Run the tests: `.venv\Scripts\python -m pytest`
 7. Send a briefing right now: `.venv\Scripts\python -m coach.main --now`. Without Telegram set up, it prints the briefing and saves the MP3 to `coach/data/audio/` instead.
 8. Run it for real: `.venv\Scripts\python -m coach.main`. Leave it running and the briefing arrives every morning at the time in `config.yaml`. If the computer was asleep then, it goes out as soon as it wakes, up to three hours late.
+   - A day set to `wake` (weekends, by default) has no set time: the briefing comes when you tap the "I'm up" button under the chat (any message works), or at `wake_latest` if you don't.
+   - The bot only answers your own chat, so it's fine that its username is public.
 
 ## License
 

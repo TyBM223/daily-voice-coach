@@ -1,19 +1,22 @@
 import asyncio
 from types import SimpleNamespace
 
-from coach.delivery.telegram import NO_VOICE_NOTE, recent_chats, send_briefing
+from coach.delivery.telegram import KEYBOARD, NO_VOICE_NOTE, WAKE_BUTTON, recent_chats, send_briefing
 
 
 class FakeBot:
     def __init__(self, updates=()):
         self.sent = []
+        self.keyboards = []
         self.updates = list(updates)
 
-    async def send_voice(self, chat_id, voice, caption=None):
+    async def send_voice(self, chat_id, voice, caption=None, reply_markup=None):
         self.sent.append(("voice", chat_id, voice.read(), caption))
+        self.keyboards.append(reply_markup)
 
-    async def send_message(self, chat_id, text):
+    async def send_message(self, chat_id, text, reply_markup=None):
         self.sent.append(("message", chat_id, text))
+        self.keyboards.append(reply_markup)
 
     async def get_updates(self):
         return self.updates
@@ -42,6 +45,15 @@ def test_no_audio_sends_text_with_a_note():
     bot = FakeBot()
     asyncio.run(send_briefing(bot, 42, "Morning, Ty.", None))
     assert bot.sent == [("message", 42, f"{NO_VOICE_NOTE}\n\nMorning, Ty.")]
+
+
+def test_every_message_carries_the_wake_button(tmp_path):
+    for audio in (mp3(tmp_path), None):
+        for text in ("Morning, Ty.", "x" * 1500):
+            bot = FakeBot()
+            asyncio.run(send_briefing(bot, 42, text, audio))
+            assert bot.keyboards and all(keyboard is KEYBOARD for keyboard in bot.keyboards)
+    assert KEYBOARD.keyboard[0][0].text == WAKE_BUTTON
 
 
 def test_recent_chats_lists_who_messaged_the_bot():
