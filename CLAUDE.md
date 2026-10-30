@@ -115,7 +115,7 @@ tests/
 - [x] Weekend briefing waits for Ty's "I'm up" tap, with a noon fallback (built and unit-tested; waiting on a live weekend)
 - [x] Send voice note + text version to Telegram (first live send 2026-10-29)
 - [x] `--now` runs it once immediately (`--chat-id` finds the chat ID)
-- [ ] Scheduled run at the morning time (built; waiting on a live morning)
+- [x] Scheduled run at the morning time (first live scheduled briefing 2026-10-30 at 9:00, from the auto-started copy)
 
 Done when Ty gets a voice note every morning without touching anything.
 
@@ -123,7 +123,7 @@ Done when Ty gets a voice note every morning without touching anything.
 Order Ty approved: 1. tasks from Telegram, 2. midday + evening check-ins, 3. phrase help + no repeats, 4. sports. Checkpoint after each group.
 Check-in style: midday is text only (with task buttons); the evening is a short voice note + text.
 - [x] Group 1: today's tasks as buttons on the briefing and on `/tasks` (tap to check off, tap again to undo); `/add <task>` and `/add tomorrow <task>`; `/help` and a "/" command menu (built and tested with stand-in messages; waiting on a live try)
-- [x] Group 2: midday check-in at 12:30 on weekdays (one line on what's left, with task buttons; skipped when there are no tasks) and an evening wrap-up at 6:00 PM every day (short voice note: what got done, what's open, tomorrow's weather and first task; open tasks get Done buttons, and one-offs also get Tomorrow / Drop). Built and dry-run against the real task list; waiting on a live evening
+- [x] Group 2: midday check-in at 12:30 on weekdays (one line on what's left, with task buttons; skipped when there are no tasks) and an evening wrap-up at 6:00 PM every day (short voice note: what got done, what's open, tomorrow's weather and first task; open tasks get Done buttons, and one-offs also get Tomorrow / Drop). Live: first evening 2026-10-29 18:00, first midday 2026-10-30 12:30
 - [x] Group 3: no repeats (phrases, facts, history, jokes and quotes picked from the sent history in `data/log.json`); spaced phrase reviews in the evening 1, 3 and 7 days after a phrase is taught; `/phrase` resends the latest phrase word by word, slowly, then at normal speed, with the spelling. Built and dry-run; waiting on a live week
 - [ ] Optional (ask first): top news headlines from free RSS feeds (no key), in the briefing or on `/news`
 - [x] Group 4: sports for Ty's teams (49ers, Heat, Auburn football, Chelsea incl. League Cup and FA Cup; no hockey or baseball). The morning briefing says yesterday's results and today's games with time and TV (game-day mornings can run to about 86 seconds); up to 3 headlines from the last 24 hours follow as a short text with links; `/sports` shows next games, results from the past week and headlines since yesterday. Built and dry-run with live data; waiting on a live game day
