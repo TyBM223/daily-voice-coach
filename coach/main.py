@@ -54,6 +54,7 @@ from coach.sources.content import (
 from coach.sources.sports import fetch_games, fetch_headlines
 from coach.sources.tasks import TasksFileError, add_task, drop_task, load_tasks, move_to_tomorrow, toggle_done
 from coach.sources.weather import fetch_weather
+from coach.voice.stt import WhisperSTT
 from coach.voice.tts import EdgeTTS, render
 
 log = logging.getLogger("coach")
@@ -64,6 +65,7 @@ DATA_DIR = PACKAGE_DIR / "data"
 MORNING_AUDIO_PATH = DATA_DIR / "audio" / "morning.mp3"
 EVENING_AUDIO_PATH = DATA_DIR / "audio" / "evening.mp3"
 PHRASE_AUDIO_PATH = DATA_DIR / "audio" / "phrase.mp3"
+INCOMING_AUDIO_PATH = DATA_DIR / "audio" / "incoming.ogg"  # Ty's latest voice note, overwritten each time
 STATE_PATH = DATA_DIR / "state.json"
 LOG_PATH = DATA_DIR / "coach.log"
 TASKS_PATH = DATA_DIR / "tasks.json"
@@ -341,21 +343,54 @@ async def check_schedule(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A message from Ty: a plain-word request ("done gym"), and/or, on wake days, the first
-    message after wake_earliest, which sends the briefing."""
+    """A typed message from Ty."""
+    await _handle(update.effective_message, context, update.effective_message.text)
+
+
+async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """A voice note from Ty: transcribed on this laptop, then handled like a typed message.
+    Replies start with what was heard, so a mishearing is easy to spot."""
+    config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
+    message = update.effective_message
+    await context.bot.send_chat_action(chat_id, ChatAction.TYPING)
+    today = message.date.astimezone(ZoneInfo(config["timezone"])).date()
+    try:
+        hint = ", ".join(task.text for task in load_tasks(TASKS_PATH, today))  # helps it spell task names
+    except TasksFileError:
+        hint = ""
+    try:
+        voice_file = await message.voice.get_file()
+        INCOMING_AUDIO_PATH.parent.mkdir(parents=True, exist_ok=True)
+        await voice_file.download_to_drive(INCOMING_AUDIO_PATH)
+        heard = await asyncio.to_thread(context.bot_data["stt"].transcribe, INCOMING_AUDIO_PATH, hint)
+    except Exception as e:
+        log.warning("Couldn't transcribe a voice note: %s", e)
+        await message.reply_text("I couldn't make out that voice note. Try again, or type it.", reply_markup=KEYBOARD)
+        return
+    if not heard:
+        await message.reply_text("I didn't hear anything in that one. Try again, or type it.", reply_markup=KEYBOARD)
+        return
+    log.info("Voice note transcribed (%d words)", len(heard.split()))  # the words themselves stay out of the log
+    await _handle(message, context, heard, heard=True)
+
+
+async def _handle(message, context: ContextTypes.DEFAULT_TYPE, text: str | None, heard: bool = False) -> None:
+    """A plain-word request ("done gym"), and/or, on wake days, the first message after
+    wake_earliest, which sends the briefing. heard: text came from a voice note."""
     config, chat_id = context.bot_data["config"], context.bot_data["chat_id"]
     tz = ZoneInfo(config["timezone"])
-    message = update.effective_message
     sent_at = message.date.astimezone(tz)
     if sent_at.date() != datetime.now(tz).date():
         return  # sent before midnight and only picked up now because the laptop was asleep
-    intent = parse(message.text) if message.text and message.text != WAKE_BUTTON else None
+    echo = f'🎙 "{text}"\n' if heard else ""
+    intent = parse(text) if text and text != WAKE_BUTTON else None
     if intent:
-        await message.reply_text(**_answer(intent, sent_at.date()))
-    reply = wake_reply(sent_at, config["schedule"], load_last_sent(), message.text)
+        answer = _answer(intent, sent_at.date())
+        await message.reply_text(echo + answer["text"], reply_markup=answer["reply_markup"])
+    reply = wake_reply(sent_at, config["schedule"], load_last_sent(), text)
     if reply:
         if not intent:  # a request already got its answer; the schedule note would just be noise
-            await message.reply_text(reply, reply_markup=KEYBOARD)
+            await message.reply_text(echo + reply, reply_markup=KEYBOARD)
         return
     await context.bot.send_chat_action(chat_id, ChatAction.RECORD_VOICE)
     if not await send_morning_once(config, context.bot, chat_id, datetime.now(tz)):
@@ -508,7 +543,7 @@ async def _set_commands(app: Application) -> None:
 
 def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app = Application.builder().token(token).post_init(_set_commands).build()
-    app.bot_data.update(config=config, chat_id=chat_id)
+    app.bot_data.update(config=config, chat_id=chat_id, stt=WhisperSTT(config.get("speech_model", "base.en")))
     app.job_queue.run_repeating(check_schedule, interval=CHECK_EVERY_SECONDS, first=1)
     # Only Ty's chat counts: the bot's username is public, so messages from anyone else are ignored.
     # Edited messages are skipped too. Handlers are tried in order; the first match wins.
@@ -519,7 +554,8 @@ def run_scheduler(config: dict, token: str, chat_id: str) -> None:
     app.add_handler(CommandHandler("sports", on_sports, filters=ty))
     app.add_handler(CommandHandler(["help", "start"], on_help, filters=ty))
     app.add_handler(MessageHandler(ty & filters.COMMAND, on_unknown_command))
-    app.add_handler(MessageHandler(ty, on_message))
+    app.add_handler(MessageHandler(ty & filters.VOICE, on_voice))
+    app.add_handler(MessageHandler(ty, on_message))  # text, and anything else (on wake days, any message counts)
     app.add_handler(CallbackQueryHandler(on_task_tap, pattern=f"^[{TASK_TAP}{EVENING_DONE}{EVENING_MOVE}{EVENING_DROP}]:"))
     schedule = config["schedule"]
     log.info("Coach running (%s). Mornings: %s on weekdays, %s on weekends. Midday %s (weekdays), evening %s.",

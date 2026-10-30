@@ -181,3 +181,8 @@ def test_whats_left_lists_with_buttons(files):
     reply = say(files, "what's left")
     assert reply.text == "Today's list. Tap a task when it's done:"
     assert len(reply.buttons.inline_keyboard) == 5
+
+
+def test_speech_to_text_punctuation_is_fine():
+    assert parse("Done, gym.") == Intent("done", "gym")
+    assert parse("Push, resume to tomorrow.") == Intent("move", "resume")

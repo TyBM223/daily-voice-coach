@@ -4,6 +4,8 @@ httpx==0.28.1   # also installed by python-telegram-bot; used directly by coach/
 PyYAML==6.0.3
 python-dotenv==1.2.4
 tzdata==2026.6   # time zone data; Windows has none built in
+faster-whisper==1.2.1   # voice notes to text, on this machine; downloads a ~150 MB model on first use
+av==18.1.0   # audio decoding for faster-whisper; 19.x dropped an option faster-whisper 1.2.1 still passes
 
 # dev
 pytest==9.2.0

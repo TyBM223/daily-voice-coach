@@ -52,6 +52,7 @@ def parse(text: str) -> Intent | None:
     if not clean or clean.endswith("?") and not clean.startswith(("what", "whats")):
         return None  # a question ("did you see the game?") isn't a request
     clean = clean.rstrip("?")
+    clean = re.sub(r"^(\w+),", r"\1", clean)  # "Done, gym." (how speech-to-text writes it) reads as "done gym"
     for kind, pattern in PATTERNS:
         found = pattern.match(clean)
         if found:

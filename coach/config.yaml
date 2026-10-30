@@ -12,6 +12,7 @@ temperature_unit: fahrenheit   # or celsius
 
 language_to_learn: Portuguese   # needs content_data/phrases_<language>.json (Spanish and Portuguese included)
 
+speech_model: base.en           # transcribes your voice notes on this laptop (small.en: more accurate, slower)
 voice: en-GB-RyanNeural         # any edge-tts voice name
 phrase_voice: pt-BR-AntonioNeural # speaks the phrase; match it to language_to_learn (Spanish: es-MX-JorgeNeural)
 

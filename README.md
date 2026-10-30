@@ -43,6 +43,7 @@ Everything runs on free tools with no paid APIs and no credit card: Open-Meteo f
 - `/phrase` resends the latest language phrase word by word, slowly, then at normal speed, with the spelling written out.
 - `/sports` shows your teams' next games (time and TV), results from the past week, and headlines since yesterday.
 - `/help` lists everything.
+- Send a voice note instead of typing: it's transcribed on your computer (faster-whisper; a ~150 MB model downloads into `coach/data/models` the first time) and handled the same way. The reply starts with what it heard.
 - Or just type: `done gym`, `done gym and applications`, `push resume to tomorrow`, `drop the walk`, `add call recruiter tomorrow`, `what's left`. Part of a task's name is enough; if two tasks fit, the bot asks which.
 - At 12:30 on weekdays, a one-line midday check shows what's left, with the same buttons.
 - At 6:00 PM, a short voice note recaps the day and previews tomorrow (weather and first task). Anything still open gets buttons: check it off, move it to tomorrow, or drop it.
